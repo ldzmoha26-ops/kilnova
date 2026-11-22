@@ -1,9 +1,11 @@
 import 'dotenv/config';
+import http from 'node:http';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KilnovaRagEngine } from './src/rag/vectorEngine';
-import type { HistoricalIncidentRecord, KnowledgeCollection } from './src/rag/types';
+import { attachKilnovaLiveVoiceServer, GEMINI_LIVE_MODEL } from './src/voice/liveVoiceBridge';
+import type { AssistantLanguage, HistoricalIncidentRecord, KnowledgeCollection } from './src/rag/types';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +34,7 @@ async function startServer() {
   app.use(express.json({ limit: '1mb' }));
 
   const ragEngine = new KilnovaRagEngine(process.env.GEMINI_API_KEY);
+  void ragEngine.ensureEmbeddings().catch(() => {});
 
   // Health endpoint
   app.get('/api/health', (_req, res) => {
@@ -43,6 +46,8 @@ async function startServer() {
       parameters: ragEngine.getParameters().length,
       chunks: ragEngine.getChunkCount(),
       configuredShellLimitC: 370,
+      voiceLiveModel: GEMINI_LIVE_MODEL,
+      voiceWsPath: '/api/voice/live',
     });
   });
 
@@ -195,7 +200,7 @@ async function startServer() {
   // Main RAG Query Endpoint (AI Supervisor Agent)
   app.post('/api/rag/query', async (req, res) => {
     try {
-      const { question, collectionFilter, operationalContext } = req.body ?? {};
+      const { question, collectionFilter, preferredLanguage, operationalContext } = req.body ?? {};
       if (typeof question !== 'string' || question.trim().length < 2 || question.trim().length > 1500) {
         return res.status(400).json({
           error: 'Please enter a valid question (2–1,500 characters).',
@@ -207,9 +212,15 @@ async function startServer() {
           ? collectionFilter
           : 'all';
 
+      const safeLanguage: AssistantLanguage =
+        preferredLanguage === 'en' || preferredLanguage === 'fr' || preferredLanguage === 'ar'
+          ? preferredLanguage
+          : 'auto';
+
       const result = await ragEngine.query({
         question: question.trim(),
         collectionFilter: safeFilter,
+        preferredLanguage: safeLanguage,
         operationalContext:
           operationalContext && typeof operationalContext === 'object'
             ? operationalContext
@@ -243,8 +254,13 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`KILNOVA Industrial Intelligence server running on http://0.0.0.0:${PORT}`);
+  const httpServer = http.createServer(app);
+  attachKilnovaLiveVoiceServer(httpServer, ragEngine, process.env.GEMINI_API_KEY);
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(
+      `KILNOVA Industrial Intelligence server running on http://0.0.0.0:${PORT} (Voice Live: /api/voice/live · ${GEMINI_LIVE_MODEL})`
+    );
   });
 }
 

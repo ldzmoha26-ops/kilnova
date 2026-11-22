@@ -1,7 +1,9 @@
 {
   "name": "Remix Remix Kilnova — Industrial Thermal Engineering",
   "description": "Precision kiln engineering and extreme thermal systems that transform raw geological matter into refined industrial materials.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "microphone"
+  ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

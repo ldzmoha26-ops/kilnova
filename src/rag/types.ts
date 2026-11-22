@@ -91,9 +91,12 @@ export interface RagCitation {
   };
 }
 
+export type AssistantLanguage = 'auto' | 'en' | 'fr' | 'ar';
+
 export interface RagQueryRequest {
   question: string;
   collectionFilter?: KnowledgeCollection | 'all';
+  preferredLanguage?: AssistantLanguage;
   operationalContext?: {
     shellMaxTemp?: number;
     burningZoneTemp?: number;

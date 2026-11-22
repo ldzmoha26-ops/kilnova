@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   BookOpen,
   CheckCircle2,
   FilePlus2,
   FileText,
   Loader2,
+  Mic,
+  MicOff,
+  PhoneOff,
   PlusCircle,
   SendHorizontal,
   Sparkles,
+  VolumeX,
   X,
 } from 'lucide-react';
 import {
@@ -20,6 +24,7 @@ import {
 import { SYSTEM_HEALTH_SENSORS, type OperatingRegime } from '../data/industrialAnalytics';
 import { SYNTHETIC_DEMO_INCIDENTS } from '../rag/knowledgeCorpus';
 import type {
+  AssistantLanguage,
   HistoricalIncidentRecord,
   KnowledgeCollection,
   KnowledgeDocument,
@@ -27,6 +32,8 @@ import type {
   RagQueryResponse,
 } from '../rag/types';
 import { auth, saveUserRagDocument, saveUserRagIncident } from '../lib/firebase';
+import { getVoiceStatusMeta } from '../voice/pcmAudio';
+import { useKilnovaVoiceAgent, type VoiceTurnCommit } from '../voice/useKilnovaVoiceAgent';
 import { IndustrialKpiPanel } from './IndustrialKpiPanel';
 import { ParameterRegistryPanel } from './ParameterRegistryPanel';
 
@@ -38,6 +45,7 @@ interface RagChatMessage {
   id: string;
   role: 'supervisor' | 'assistant';
   text: string;
+  channel?: 'text' | 'voice';
   citations?: RagCitation[];
   model?: string;
   usedEmbeddings?: boolean;
@@ -78,10 +86,11 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
   const [lowerTab, setLowerTab] = useState<'kpis' | 'incidents' | 'registry'>('kpis');
   const [regime, setRegime] = useState<OperatingRegime>('NORMAL');
 
-  // Real RAG AI Supervisor Agent state
+  // Real RAG AI Supervisor Agent state (shared across text & live voice)
   const [messages, setMessages] = useState<RagChatMessage[]>(INITIAL_ASSISTANT_MESSAGES);
   const [draftPrompt, setDraftPrompt] = useState('');
   const [collectionFilter, setCollectionFilter] = useState<KnowledgeCollection | 'all'>('all');
+  const [assistantLanguage, setAssistantLanguage] = useState<AssistantLanguage>('auto');
   const [isQuerying, setIsQuerying] = useState(false);
   const [expandedCitation, setExpandedCitation] = useState<RagCitation | null>(null);
 
@@ -173,6 +182,59 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
   const anomalyCount = INITIAL_PROCESS_HISTORY.filter((r) => r.condition === 'ANOMALY').length;
   const warningCount = INITIAL_PROCESS_HISTORY.filter((r) => r.condition === 'WARNING').length;
 
+  const handleVoiceTurnCommit = useCallback((turn: VoiceTurnCommit) => {
+    hasInteractedRef.current = true;
+    setMessages((prev) => {
+      const next = [...prev];
+      const baseStamp = Date.now();
+      if (turn.userTranscript) {
+        next.push({
+          id: `vu-${baseStamp}`,
+          role: 'supervisor',
+          channel: 'voice',
+          text: turn.userTranscript,
+        });
+      }
+      if (turn.assistantTranscript) {
+        next.push({
+          id: `va-${baseStamp + 1}`,
+          role: 'assistant',
+          channel: 'voice',
+          text: turn.assistantTranscript,
+          citations: turn.citations,
+          model: 'gemini-3.8-live',
+          advisorDisclaimer:
+            turn.advisorDisclaimer ?? 'Advisor only — does not execute live DCS commands.',
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  const voice = useKilnovaVoiceAgent({
+    language: assistantLanguage,
+    collectionFilter,
+    operationalContext: {
+      shellMaxTemp: 412,
+      burningZoneTemp: 1486,
+      affectedZone: 'Shell Ring B-04 · Meter 39–43',
+      condition: 'ANOMALY',
+      flaggedSensors: flaggedSensorsCount,
+    },
+    onCommitTurn: handleVoiceTurnCommit,
+  });
+
+  const voiceMeta = getVoiceStatusMeta(voice.voiceState);
+  const isVoiceBarVisible = voice.voiceState !== 'idle' || Boolean(voice.voiceError);
+
+  useEffect(() => {
+    if (!hasInteractedRef.current && !voice.liveUserDraft && !voice.liveAssistantDraft) return;
+    const container = threadContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [voice.liveUserDraft, voice.liveAssistantDraft]);
+
   const sendSupervisorQuery = async (question: string) => {
     const trimmed = question.trim();
     if (!trimmed || isQuerying) return;
@@ -181,7 +243,7 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
     hasInteractedRef.current = true;
     setMessages((prev) => [
       ...prev,
-      { id: `u-${stamp}`, role: 'supervisor', text: trimmed },
+      { id: `u-${stamp}`, role: 'supervisor', channel: 'text', text: trimmed },
     ]);
     setDraftPrompt('');
     setIsQuerying(true);
@@ -193,6 +255,7 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
         body: JSON.stringify({
           question: trimmed,
           collectionFilter,
+          preferredLanguage: assistantLanguage,
           operationalContext: {
             shellMaxTemp: 412,
             burningZoneTemp: 1486,
@@ -701,28 +764,60 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
                 </div>
               </div>
 
-              <div className="mt-2 flex flex-wrap gap-1">
-                {(
-                  [
-                    { id: 'all', label: 'All' },
-                    { id: 'technical_docs', label: 'Tech Docs' },
-                    { id: 'equipment_registry', label: 'Registry' },
-                    { id: 'demo_incidents', label: 'Demo Incidents' },
-                  ] as const
-                ).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setCollectionFilter(item.id)}
-                    className={`rounded px-2 py-0.5 font-mono text-[9px] transition-colors cursor-pointer ${
-                      collectionFilter === item.id
-                        ? 'bg-[#1D64D8] text-white font-semibold'
-                        : 'bg-white/10 text-[#CBD5E1] hover:text-white'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5">
+                <div className="flex flex-wrap gap-1">
+                  {(
+                    [
+                      { id: 'all', label: 'All' },
+                      { id: 'technical_docs', label: 'Tech Docs' },
+                      { id: 'equipment_registry', label: 'Registry' },
+                      { id: 'demo_incidents', label: 'Demo Incidents' },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setCollectionFilter(item.id)}
+                      className={`rounded px-2 py-0.5 font-mono text-[9px] transition-colors cursor-pointer ${
+                        collectionFilter === item.id
+                          ? 'bg-[#1D64D8] text-white font-semibold'
+                          : 'bg-white/10 text-[#CBD5E1] hover:text-white'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  role="group"
+                  aria-label="Assistant language preference"
+                  className="inline-flex items-center gap-0.5 rounded border border-white/15 bg-white/5 p-0.5"
+                >
+                  {(
+                    [
+                      { id: 'auto', label: 'Auto' },
+                      { id: 'en', label: 'EN' },
+                      { id: 'fr', label: 'FR' },
+                      { id: 'ar', label: 'AR' },
+                    ] as const
+                  ).map((lang) => (
+                    <button
+                      key={lang.id}
+                      type="button"
+                      data-testid={`assistant-lang-${lang.id}`}
+                      aria-pressed={assistantLanguage === lang.id}
+                      onClick={() => setAssistantLanguage(lang.id)}
+                      className={`rounded px-1.5 py-0.5 font-mono text-[9px] transition-colors cursor-pointer ${
+                        assistantLanguage === lang.id
+                          ? 'bg-[#1D64D8] text-white font-semibold'
+                          : 'text-[#CBD5E1] hover:text-white'
+                      }`}
+                    >
+                      {lang.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -752,8 +847,11 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
                       }`}
                     >
                       {msg.role === 'supervisor' ? 'Supervisor' : 'KILNOVA AI'}
+                      {msg.channel === 'voice' ? ' · VOICE' : ''}
                     </p>
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                    <p dir="auto" className="whitespace-pre-wrap break-words">
+                      {msg.text}
+                    </p>
 
                     {msg.citations && msg.citations.length > 0 && (
                       <div className="mt-2.5 border-t border-[#E2E8F0] pt-2">
@@ -794,6 +892,32 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
                 </div>
               ))}
 
+              {voice.liveUserDraft && (
+                <div className="flex justify-end">
+                  <div className="max-w-[86%] rounded-lg bg-[#0B0C0D]/85 px-3.5 py-2 text-xs leading-[1.55] text-white">
+                    <p className="mb-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#93C5FD]">
+                      Supervisor · VOICE (LIVE)
+                    </p>
+                    <p dir="auto" className="whitespace-pre-wrap break-words">
+                      {voice.liveUserDraft}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {voice.liveAssistantDraft && (
+                <div className="flex justify-start">
+                  <div className="max-w-[94%] rounded-lg border border-[#BFDBFE] bg-white px-3.5 py-2.5 text-xs leading-[1.6] text-[#1E293B]">
+                    <p className="mb-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#1D64D8]">
+                      KILNOVA AI · VOICE (SPEAKING)
+                    </p>
+                    <p dir="auto" className="whitespace-pre-wrap break-words">
+                      {voice.liveAssistantDraft}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {isQuerying && (
                 <div className="flex justify-start">
                   <div className="inline-flex items-center gap-2 rounded-lg border border-[#BFDBFE] bg-white px-3 py-2 font-mono text-[11px] text-[#1D64D8]">
@@ -804,8 +928,112 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
               )}
             </div>
 
-            {/* Original Quick Queries + Input Bar */}
+            {/* Original Quick Queries + Compact Collapsible Voice Control Bar + Input Bar */}
             <div className="shrink-0 border-t border-[#E2E8F0] bg-white p-3">
+              {isVoiceBarVisible && (
+                <div
+                  data-testid="voice-control-bar"
+                  className={`mb-2 rounded-md border px-2.5 py-2 ${
+                    voice.voiceError
+                      ? 'border-[#FECACA] bg-[#FEF2F2]'
+                      : 'border-[#CBD5E1] bg-[#F8FAFC]'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${voiceMeta.dotColorClass}`}
+                        aria-hidden="true"
+                      />
+                      <span
+                        data-testid="voice-status-label"
+                        className={`truncate font-mono text-[10px] font-semibold uppercase tracking-[0.06em] ${voiceMeta.textColorClass}`}
+                      >
+                        {voiceMeta.label}
+                      </span>
+
+                      {(voice.voiceState === 'listening' || voice.voiceState === 'speaking') && (
+                        <div
+                          data-testid="voice-waveform"
+                          aria-label="Live audio activity"
+                          className="flex h-3.5 items-center gap-0.5"
+                        >
+                          {[0.45, 0.85, 1.0, 0.7, 0.5].map((weight, idx) => {
+                            const heightPx = Math.max(
+                              3,
+                              Math.round(3 + Math.min(1, voice.audioLevel * weight + 0.12) * 11)
+                            );
+                            return (
+                              <span
+                                key={idx}
+                                className={`w-0.5 rounded-full transition-all duration-75 ${
+                                  voice.voiceState === 'speaking'
+                                    ? 'bg-[#1D64D8]'
+                                    : 'bg-[#059669]'
+                                }`}
+                                style={{ height: `${heightPx}px` }}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {(voice.isSpeakingAudio || voice.voiceState === 'speaking') && (
+                        <button
+                          type="button"
+                          data-testid="voice-stop-speaking-btn"
+                          onClick={voice.stopSpeaking}
+                          className="inline-flex items-center gap-1 rounded border border-[#CBD5E1] bg-white px-2 py-1 font-mono text-[10px] font-semibold text-[#0B0C0D] hover:border-[#1D64D8] hover:text-[#1D64D8] cursor-pointer"
+                        >
+                          <VolumeX className="h-3 w-3 shrink-0" aria-hidden="true" />
+                          <span>Stop Speaking</span>
+                        </button>
+                      )}
+
+                      {voice.voiceState !== 'idle' && voice.voiceState !== 'error' && (
+                        <button
+                          type="button"
+                          data-testid="voice-end-session-btn"
+                          onClick={voice.endVoiceSession}
+                          className="inline-flex items-center gap-1 rounded border border-[#FECACA] bg-white px-2 py-1 font-mono text-[10px] font-semibold text-[#DC2626] hover:bg-[#FEF2F2] cursor-pointer"
+                        >
+                          <PhoneOff className="h-3 w-3 shrink-0" aria-hidden="true" />
+                          <span>End Session</span>
+                        </button>
+                      )}
+
+                      {voice.voiceError && (
+                        <button
+                          type="button"
+                          onClick={voice.dismissVoiceError}
+                          aria-label="Dismiss voice error"
+                          className="inline-flex h-6 w-6 items-center justify-center rounded border border-[#FECACA] bg-white text-[#991B1B] hover:bg-[#FEE2E2] cursor-pointer"
+                        >
+                          <X className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {voice.ragLookupNote && !voice.voiceError && (
+                    <p className="mt-1 truncate font-mono text-[9.5px] text-[#475569]">
+                      {voice.ragLookupNote}
+                    </p>
+                  )}
+
+                  {voice.voiceError && (
+                    <p
+                      data-testid="voice-error-message"
+                      className="mt-1 break-words text-[11px] leading-snug text-[#991B1B]"
+                    >
+                      {voice.voiceError}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                 {RAG_QUICK_PROMPTS.map((prompt) => (
                   <button
@@ -832,8 +1060,43 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
                   onChange={(e) => setDraftPrompt(e.target.value)}
                   disabled={isQuerying}
                   placeholder="Ask about 370 °C limit, CAS-2026-081, reports, or sensors..."
-                  className="min-h-[40px] flex-1 rounded-md border border-[#CBD5E1] bg-white px-3.5 py-2 text-xs text-[#0B0C0D] placeholder:text-[#94A3B8] focus:border-[#1D64D8] focus:outline-none"
+                  className="min-h-[40px] min-w-0 flex-1 rounded-md border border-[#CBD5E1] bg-white px-3 py-2 text-xs text-[#0B0C0D] placeholder:text-[#94A3B8] focus:border-[#1D64D8] focus:outline-none"
                 />
+                <button
+                  type="button"
+                  data-testid="voice-mic-btn"
+                  onClick={() => {
+                    if (voice.voiceState === 'idle' || voice.voiceState === 'error') {
+                      void voice.startVoiceSession();
+                    } else {
+                      voice.endVoiceSession();
+                    }
+                  }}
+                  aria-label={
+                    voice.voiceState === 'idle' || voice.voiceState === 'error'
+                      ? 'Start live voice conversation with KILNOVA AI'
+                      : 'End live voice conversation'
+                  }
+                  aria-pressed={voiceMeta.isLiveConnected}
+                  title={
+                    voice.voiceState === 'idle' || voice.voiceState === 'error'
+                      ? 'Start Live Voice (EN / FR / AR)'
+                      : 'End Live Voice Session'
+                  }
+                  className={`inline-flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-md border transition-colors cursor-pointer ${
+                    voiceMeta.isLiveConnected
+                      ? 'border-[#DC2626] bg-[#DC2626] text-white hover:bg-[#B91C1C]'
+                      : voice.voiceState === 'connecting' || voice.voiceState === 'requesting_mic'
+                        ? 'border-[#1D64D8] bg-[#EFF6FF] text-[#1D64D8]'
+                        : 'border-[#CBD5E1] bg-[#F8FAFC] text-[#0B0C0D] hover:border-[#1D64D8] hover:bg-[#EFF6FF] hover:text-[#1D64D8]'
+                  }`}
+                >
+                  {voiceMeta.isLiveConnected ? (
+                    <MicOff className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Mic className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
                 <button
                   type="submit"
                   disabled={isQuerying || !draftPrompt.trim()}

@@ -5,6 +5,7 @@ import {
   SYNTHETIC_DEMO_INCIDENTS,
 } from './knowledgeCorpus';
 import type {
+  AssistantLanguage,
   DocumentChunk,
   EquipmentParameterEntry,
   HistoricalIncidentRecord,
@@ -22,6 +23,55 @@ export const FALLBACK_GENERATION_MODEL = 'gemini-4-hydrogen';
 
 export const ADVISOR_DISCLAIMER =
   'ADVISOR-ONLY MODE: KILNOVA provides explainable decision support and never directly executes DCS commands or alters live kiln setpoints. All interventions require human operator validation.';
+
+export function buildLanguageGuidance(preferredLanguage: AssistantLanguage = 'auto'): string {
+  if (preferredLanguage === 'fr') {
+    return 'Respond in clear industrial French (français), using accurate cement kiln terminology (four rotatif, virole, zone de cuisson, chaux libre, air tertiaire, Repli Manuel).';
+  }
+  if (preferredLanguage === 'ar') {
+    return 'Respond in clear Modern Standard Arabic (العربية) with accurate cement rotary kiln terminology (الفرن الدوار، الغلاف المعدني، منطقة الحرق، الجير الحر، الهواء الثالثي، الوضع اليدوي الاحتياطي), keeping technical IDs like CAS-2026-081, PRC-2048, and 370 °C clear.';
+  }
+  if (preferredLanguage === 'en') {
+    return 'Respond in clear industrial English using accurate dry-process rotary cement kiln terminology.';
+  }
+  return 'Automatically detect the operator/supervisor language (English, French, or Arabic) and respond naturally in the same language while keeping industrial cement kiln terminology, case IDs (CAS-2026-081/092/105, PRC-2048), and 370 °C threshold accurate.';
+}
+
+export function buildSupervisorSystemInstruction(options?: {
+  mode?: 'text' | 'voice';
+  preferredLanguage?: AssistantLanguage;
+  operationalContext?: RagQueryRequest['operationalContext'];
+}): string {
+  const mode = options?.mode ?? 'text';
+  const langRule = buildLanguageGuidance(options?.preferredLanguage ?? 'auto');
+  const op = options?.operationalContext;
+  const opSnapshot = op
+    ? `\nCURRENT DEMONSTRATION DASHBOARD SNAPSHOT (Context A — Demonstration Data, NOT live plant DCS):\n- Condition: ${op.condition ?? 'ANOMALY'}\n- Active Zone: ${op.affectedZone ?? 'Shell Ring B-04 (Meter 39–43)'}\n- Shell Peak Temp: ${op.shellMaxTemp ?? 412} °C (Configured prototype limit < 370 °C)\n- Burning Zone Temp: ${op.burningZoneTemp ?? 1486} °C\n- Flagged Sensors: ${op.flaggedSensors ?? 3}/6\n`
+    : '';
+
+  const modeRules =
+    mode === 'voice'
+      ? `6. VOICE CONVERSATION & RAG TOOL RULES:
+   - You are speaking live to a control-room supervisor over bidirectional audio. Keep spoken answers crisp, well-structured, and easy to follow without reading raw markdown symbols aloud.
+   - For ANY question about kiln technical documents, SCAEK problem statement, GEW 2026 guide, process notes, equipment parameters, sensors, KPIs, energy consumption, safety limits, or historical incidents (e.g., CAS-2026-081, CAS-2026-092, CAS-2026-105, PRC-2048), ALWAYS call the \`search_kilnova_knowledge_base\` tool first to ground your spoken answer in the live KILNOVA RAG corpus.
+   - Mention the relevant Case ID or Document Section naturally when answering, and verbally distinguish simulated demonstration records (DEMONSTRATION DATA) and preliminary notes (PENDING PLANT VALIDATION) from verified plant facts.
+   - If the supervisor asks you to execute a DCS command, change burner fuel, adjust kiln speed, modify fan speeds, alter tertiary air, or change any operational setpoint, politely refuse and clearly explain that KILNOVA is strictly an ADVISOR-ONLY decision-support system and that human operators must validate and execute any intervention on the plant DCS.`
+      : `6. Structure your answer concisely and clearly for control-room supervisors, distinguishing:
+   - **Retrieved Facts & Historical Comparison** (citing exact Case IDs or Document Sections)
+   - **Probable Causes & Technical Mechanism** (clearly separated as engineering hypotheses where applicable)
+   - **Advisor Recommendations & Safety Constraints** (human-in-the-loop validation required).`;
+
+  return `You are the KILNOVA AI Supervisor Agent (Operational Data & Report Intelligence) for the dry-process cement rotary kiln at SCAEK (GEW 2026 prototype).
+
+MANDATORY SAFETY & SCIENTIFIC INTEGRITY RULES:
+1. You are strictly an ADVISOR. Never claim to execute DCS commands, change burner settings, modify fuel flow, change kiln speed, change fan speeds, modify tertiary air settings, change operational setpoints, or control real kiln equipment. State clearly that all recommendations require human operator validation.
+2. Ground every factual claim strictly in retrieved KILNOVA knowledge base sources. Never invent incident IDs, plant measurements, financial savings, ROI, or unvalidated ML accuracy percentages.
+3. Whenever citing a historical incident from the demo_incidents collection (such as CAS-2026-081, CAS-2026-092, or CAS-2026-105), explicitly state its Incident ID, Date, Severity, Problem, Historical Action, Recorded 30-min/60-min Results, AND explicitly label it as a simulated demonstration test record (DEMONSTRATION DATA) — never present it as a verified SCAEK plant record.
+4. Whenever citing parameters from the Handwritten Industrial Process Notes, explicitly note that they are preliminary readings tagged PENDING PLANT VALIDATION.
+5. Always reference the configured prototype maximum shell temperature threshold as 370 °C (subject to plant engineering/safety validation), never 395 °C.
+${modeRules}
+7. MULTILINGUAL RULE: ${langRule}${opSnapshot}`;
+}
 
 /**
  * Splits a technical document into overlapping semantic chunks for vector retrieval.
@@ -89,7 +139,7 @@ function tokenize(text: string): string[] {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\-]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\-]+/gu, ' ')
     .split(/\s+/)
     .filter((t) => t.length >= 2);
 }
@@ -386,33 +436,36 @@ export class KilnovaRagEngine {
     return scored.slice(0, topK);
   }
 
-  public async query(req: RagQueryRequest): Promise<RagQueryResponse> {
-    if (!this.ai) {
-      throw new Error('GEMINI_API_KEY is not configured on the server.');
+  /**
+   * Shared RAG retrieval pipeline used by both Text Supervisor Chat and Gemini Live Voice Agent.
+   */
+  public async retrieveWithCitations(
+    question: string,
+    options?: {
+      topK?: number;
+      collectionFilter?: KnowledgeCollection | 'all';
     }
-
-    const question = req.question.trim();
-    if (!question) {
-      throw new Error('Question cannot be empty.');
-    }
-
-    // Step 1: Hydrate corpus embeddings with gemini-embedding-2 and embed query
+  ): Promise<{
+    matches: Array<{ chunk: DocumentChunk; score: number }>;
+    citations: RagCitation[];
+    contextBlocks: string;
+    usedEmbeddings: boolean;
+  }> {
+    const cleanQuestion = question.trim();
     const usedEmbeddings = await this.ensureEmbeddings();
     let queryEmbedding: number[] | undefined;
-    if (usedEmbeddings) {
-      const qVectors = await this.embedTexts([question]);
+    if (usedEmbeddings && cleanQuestion) {
+      const qVectors = await this.embedTexts([cleanQuestion]);
       queryEmbedding = qVectors[0];
     }
 
-    // Step 2: Retrieve top relevant chunks across documents, parameter registry, and demo incidents
-    const topMatches = this.retrieveTopChunks(question, {
-      topK: 5,
-      collectionFilter: req.collectionFilter ?? 'all',
+    const matches = this.retrieveTopChunks(cleanQuestion, {
+      topK: options?.topK ?? 5,
+      collectionFilter: options?.collectionFilter ?? 'all',
       queryEmbedding,
     });
 
-    // Build structured citations
-    const citations: RagCitation[] = topMatches.map(({ chunk, score }) => {
+    const citations: RagCitation[] = matches.map(({ chunk, score }) => {
       const incident =
         chunk.collection === 'demo_incidents' && chunk.metadata.case_id
           ? this.incidents.find((i) => i.case_id === chunk.metadata.case_id)
@@ -440,8 +493,7 @@ export class KilnovaRagEngine {
       };
     });
 
-    // Step 3: Build grounded prompt with strict industrial safety & provenance rules
-    const contextBlocks = topMatches
+    const contextBlocks = matches
       .map(
         ({ chunk, score }, idx) =>
           `[SOURCE ${idx + 1} | Collection: ${chunk.collection} | Status: ${chunk.verificationStatus} | Score: ${score.toFixed(
@@ -450,26 +502,41 @@ export class KilnovaRagEngine {
       )
       .join('\n\n---\n\n');
 
+    return {
+      matches,
+      citations,
+      contextBlocks,
+      usedEmbeddings: usedEmbeddings && Boolean(queryEmbedding && queryEmbedding.length > 0),
+    };
+  }
+
+  public async query(req: RagQueryRequest): Promise<RagQueryResponse> {
+    if (!this.ai) {
+      throw new Error('GEMINI_API_KEY is not configured on the server.');
+    }
+
+    const question = req.question.trim();
+    if (!question) {
+      throw new Error('Question cannot be empty.');
+    }
+
+    const { citations, contextBlocks, usedEmbeddings } = await this.retrieveWithCitations(question, {
+      topK: 5,
+      collectionFilter: req.collectionFilter ?? 'all',
+    });
+
     const opCtx = req.operationalContext
       ? `\nCURRENT DEMONSTRATION DASHBOARD SNAPSHOT (Context A — Demonstration Data, NOT live plant DCS):\n- Condition: ${req.operationalContext.condition ?? 'ANOMALY'}\n- Active Zone: ${req.operationalContext.affectedZone ?? 'Shell Ring B-04 (Meter 39–43)'}\n- Shell Peak Temp: ${req.operationalContext.shellMaxTemp ?? 412} °C (Configured prototype limit < 370 °C)\n- Burning Zone Temp: ${req.operationalContext.burningZoneTemp ?? 1486} °C\n- Flagged Sensors: ${req.operationalContext.flaggedSensors ?? 3}/6\n`
       : '';
 
-    const systemInstruction = `You are the KILNOVA AI Supervisor Agent (Operational Data & Report Intelligence) for the dry-process cement rotary kiln at SCAEK (GEW 2026 prototype).
-
-MANDATORY SAFETY & SCIENTIFIC INTEGRITY RULES:
-1. You are strictly an ADVISOR. Never claim to execute DCS commands, change setpoints, or control real kiln equipment. State clearly that recommendations require human operator validation.
-2. Ground every factual claim strictly in the retrieved [SOURCE] passages below. Never invent incident IDs, plant measurements, financial savings, ROI, or unvalidated ML accuracy percentages.
-3. Whenever citing a historical incident from the demo_incidents collection (such as CAS-2026-081, CAS-2026-092, or CAS-2026-105), explicitly state its Incident ID, Date, Severity, Problem, Historical Action, Recorded 30-min/60-min Results, AND explicitly label it as a **simulated demonstration test record (DEMONSTRATION DATA)** — never present it as a verified SCAEK plant record.
-4. Whenever citing parameters from the Handwritten Industrial Process Notes, explicitly note that they are preliminary readings tagged **PENDING PLANT VALIDATION**.
-5. Always reference the configured prototype maximum shell temperature threshold as **370 °C** (subject to plant engineering/safety validation), never 395 °C.
-6. Structure your answer concisely and clearly for control-room supervisors, distinguishing:
-   - **Retrieved Facts & Historical Comparison** (citing exact Case IDs or Document Sections)
-   - **Probable Causes & Technical Mechanism** (clearly separated as engineering hypotheses where applicable)
-   - **Advisor Recommendations & Safety Constraints** (human-in-the-loop validation required).`;
+    const systemInstruction = buildSupervisorSystemInstruction({
+      mode: 'text',
+      preferredLanguage: req.preferredLanguage ?? 'auto',
+    });
 
     const userPrompt = `${opCtx}\nRETRIEVED KNOWLEDGE BASE SOURCES:\n${contextBlocks}\n\nSUPERVISOR QUESTION:\n${question}`;
 
-    const candidateModels = [GENERATION_MODEL, FALLBACK_GENERATION_MODEL];
+    const candidateModels = [GENERATION_MODEL, FALLBACK_GENERATION_MODEL, 'gemini-3.1-flash-lite'];
     let answer = '';
     let usedModel = GENERATION_MODEL;
     let lastErr: unknown;
@@ -506,7 +573,7 @@ MANDATORY SAFETY & SCIENTIFIC INTEGRITY RULES:
       answer,
       citations,
       retrievedCount: citations.length,
-      usedEmbeddings: usedEmbeddings && Boolean(queryEmbedding && queryEmbedding.length > 0),
+      usedEmbeddings,
       advisorDisclaimer: ADVISOR_DISCLAIMER,
       model: usedModel,
     };
