@@ -1,0 +1,984 @@
+# MASTER IMPLEMENTATION PROMPT — KILNOVA
+## AI-Powered Rotary Kiln Monitoring, Predictive Intelligence & Industrial Digital Twin
+
+### SYSTEM ROLE
+
+You are a senior Full-Stack Software Architect, Industrial AI Engineer, SCADA/HMI Specialist, Machine Learning Engineer, RAG Architect, and 3D Visualization Developer.
+
+Your mission is to develop and extend **KILNOVA**, an AI-assisted industrial monitoring and decision-support platform for the rotary kiln of a dry-process cement production line at SCAEK.
+
+You must work with the existing project, existing website, existing dashboard, supplied 3D model assets, technical documentation, official problem statement, and industrial process notes.
+
+This is not a request to create an unrelated dashboard from scratch.
+
+Your objective is to transform the existing KILNOVA prototype into a coherent, professional, technically credible industrial intelligence platform suitable for demonstration and evaluation at the GEW 2026 Ideathon.
+
+---
+
+# PART 1 — DOCUMENTATION AND TECHNICAL REQUIREMENTS
+
+Before modifying the application, carefully inspect all supplied files:
+
+1. KILNOVA_Rapport_technique_complet.pdf.
+2. problematique_de_scaek.pdf.
+3. Guide_Officiel_des_Participants_Idéathon_ByteCraft_GEW_2026.pdf.
+4. All handwritten industrial process notes and technical photographs.
+5. All existing frontend and backend source files.
+6. All supplied 3D model assets and associated files.
+7. The supplied KILNOVA logo.
+
+Treat the official problem statement and technical report as the primary references for industrial requirements.
+
+Use the handwritten notes as additional plant-specific technical information.
+
+### Important documentation rules
+
+- Preserve the existing technical architecture whenever it is correct.
+- Do not invent plant measurements or operational specifications.
+- Do not silently replace uncertain handwritten values with assumed values.
+- Clearly distinguish verified plant information, demonstration data, simulated data, and proposed engineering assumptions.
+- If a handwritten value is difficult to read, flag it for confirmation rather than treating it as an established fact.
+- Do not invent financial savings, ROI, or guaranteed production improvements.
+- Do not present simulated historical incidents as genuine SCAEK operational records.
+
+### Additional industrial requirements that must be incorporated
+
+The official problem statement identifies three important groups of variables:
+
+**A. Action variables**
+
+- Raw meal feed rate.
+- Main burner fuel flow.
+- Precalciner fuel flow.
+- Natural gas / alternative fuel mixing ratios.
+- Primary air flow.
+- Main exhaust fan draft.
+- Tertiary air management.
+- Kiln rotation speed.
+- Cooler grate speed.
+- Cooling fan airflow.
+
+**B. Observed state variables**
+
+- Cyclone temperatures.
+- Precalciner temperature.
+- Burning zone temperature.
+- Secondary air temperature.
+- Kiln inlet gas composition.
+- Preheater outlet gas composition.
+- Kiln main drive torque/current.
+- Cyclone differential pressures.
+- Kiln shell infrared scanner measurements.
+
+**C. Optimization KPIs**
+
+- Free lime (chaux libre).
+- Specific thermal energy consumption.
+- Specific electrical energy consumption of the workshop.
+- Average daily clinker production.
+- Variance of critical operating parameters.
+
+Do not omit electrical energy consumption or process stability from the dashboard, analytical models, or performance evaluation.
+
+### Additional improvements required
+
+Explicitly integrate:
+
+1. Electrical consumption optimization, particularly for the main exhaust fan, cooler fans, and kiln drive.
+2. Variance and stability monitoring for important control variables.
+3. Alternative fuel integration and mixing-ratio optimization.
+4. Tertiary air management as part of the combustion and precalciner thermal balance.
+
+The AI must understand that improving combustion stability can support the controlled integration of alternative fuels without compromising clinker quality or equipment safety.
+
+---
+
+# PART 2 — EXISTING APPLICATION PRESERVATION
+
+First inspect the current application and understand its architecture.
+
+Do not unnecessarily change:
+
+- Existing dashboard layout.
+- Existing visual identity.
+- Existing operational widgets.
+- Existing real dashboard data.
+- Existing working navigation components.
+- Existing 3D model structure.
+- Existing functional features.
+
+Extend and improve the application incrementally.
+
+Before making changes, identify the existing frontend framework, routing architecture, state-management system, backend, APIs, and database.
+
+Reuse existing components and dependencies whenever possible.
+
+Do not create duplicate dashboards or competing state-management systems.
+
+If an existing component already performs a requested function correctly, preserve it and improve it only where necessary.
+
+---
+
+# PART 3 — BRANDING AND VISUAL IDENTITY
+
+### KILNOVA branding
+
+Integrate the logo that I will provide.
+
+Place the supplied logo next to the KILNOVA brand name in the main navigation header.
+
+Important:
+
+- Use my actual supplied logo.
+- Do not replace it with an AI-generated logo.
+- Do not introduce Google Play, unrelated third-party logos, or unnecessary branding.
+- Preserve its proportions and visual identity.
+- Make it responsive and properly aligned.
+
+### Design system
+
+Maintain a professional industrial SCADA aesthetic.
+
+Visual characteristics:
+
+- Dark industrial interface.
+- Deep navy and charcoal backgrounds.
+- Subtle blue-gray surfaces.
+- Orange accents for thermal information.
+- Red for critical alarms.
+- Yellow/orange for warnings.
+- Green for normal operating conditions.
+- Clear typography and readable numerical values.
+- Professional charts and industrial data visualization.
+
+Use consistent status indicators combining text, icons, and colors.
+
+Do not rely exclusively on color to communicate safety conditions.
+
+Interactive controls must be suitable for industrial operators, with touch targets preferably at least 48 pixels.
+
+Use solid lines for measured values and dashed lines for predicted values.
+
+The interface must remain readable during long operating shifts.
+
+---
+
+# PART 4 — NAVIGATION ARCHITECTURE
+
+Separate the public website from the operational application.
+
+These must be two distinct navigation environments.
+
+### A. Public Landing Page
+
+Create or preserve a public-facing website containing:
+
+- Home.
+- Features.
+- Contact Us.
+
+The Contact Us section must be separate from the operational dashboard.
+
+The public page should explain:
+
+- What KILNOVA does.
+- Its industrial AI capabilities.
+- Its predictive monitoring functionality.
+- Its digital twin.
+- Its operational decision-support capabilities.
+- Its technological architecture.
+
+### B. Operational Application Navigation
+
+The operational application must contain ONLY:
+
+1. Operator Dashboard.
+2. Supervisor Dashboard.
+3. System Health.
+4. Manual Fallback / Repli Manuel.
+
+Remove Home and Contact Us from the operational application navigation.
+
+Do not mix public website navigation with the SCADA environment.
+
+The Manual Fallback control must be clearly visible and communicate the transition to manual operation.
+
+For the prototype, demonstrate the fallback interface without claiming that it controls the real industrial equipment.
+
+---
+
+# PART 5 — OVERALL KILN STATUS
+
+Preserve the existing Overall Kiln Status section at the top of the Supervisor Dashboard.
+
+It is an essential component for immediate operational awareness.
+
+Do not remove it or redesign it unnecessarily.
+
+The existing demonstration information includes:
+
+**Overall Kiln Status**
+
+- ANOMALY · Ring B-04.
+- Current demonstration temperature: 412 °C.
+- Logged Processes: 5 Records.
+- 1 Anomaly.
+- 2 Warnings.
+- Sensor Health: 3/6 Nominal.
+- 3 Flagged.
+- Active Thermal Focus: Meter 39–43 Shell.
+
+These values are demonstration values and must not be presented as verified live plant measurements.
+
+### CRITICAL SAFETY RULE — 370 °C
+
+The maximum shell-temperature threshold configured for this prototype is:
+
+**370 °C**
+
+This threshold must be consistently represented throughout the application.
+
+Requirements:
+
+- Replace the old 395 °C threshold wherever it appears.
+- Display: Limit < 370 °C.
+- Temperatures exceeding 370 °C must trigger a critical red alert.
+- Display an explicit threshold-violation message.
+- Show the actual temperature and deviation from the threshold.
+- Update temperature progress bars and charts.
+- Use consistent thresholds in the 3D testing environment and relevant analytical components.
+
+For example:
+
+- 350 °C: Below the configured limit.
+- 365 °C: Approaching the limit.
+- 370 °C: At the configured threshold.
+- 385 °C: Critical.
+- 412 °C: Critical, with a prominent emergency warning.
+
+Do not imply that this is a universal cement-industry limit. Treat it as the configured KILNOVA/SCAEK prototype safety threshold, subject to validation by the plant's engineering and safety team.
+
+The application must distinguish an informational warning from a genuine safety alarm.
+
+---
+
+# PART 6 — 3D ROTARY KILN DIGITAL TWIN
+
+I will provide all the available files of my existing 3D rotary kiln model.
+
+These files must be used to implement the actual model in the existing KILNOVA application.
+
+Do not replace the supplied model with a generic 3D kiln.
+
+### 3D implementation
+
+Use the appropriate technology based on the existing project, preferably:
+
+- Three.js.
+- React Three Fiber.
+- Drei.
+- GLTF/GLB asset loading through useGLTF when applicable.
+
+Inspect all supplied model files, including textures, materials, geometry, and associated assets.
+
+Preserve the model's geometry and industrial appearance.
+
+### 3D model testing data — CRITICAL
+
+The 3D viewer must have its own isolated testing dataset.
+
+This is extremely important.
+
+I want to simulate temperatures and anomalies directly on the 3D model without changing the existing real operational data displayed in the main dashboard.
+
+Implement two independent data contexts:
+
+**Context A — Main Dashboard / Operational Data**
+
+- Keeps the existing dashboard data unchanged.
+- Continues displaying the existing operational measurements.
+- Must not be affected by 3D testing.
+- Must not receive simulated values from the 3D viewer.
+
+**Context B — 3D Digital Twin / Testing Data**
+
+- Contains its own mock temperature measurements.
+- Has its own simulated operating scenarios.
+- Controls the thermal visualization of the 3D model.
+- Allows testing of different thermal conditions.
+- Must remain completely isolated from the main dashboard state.
+
+Never connect the testing dataset directly to the global operational state.
+
+### Thermal visualization
+
+Map temperature values to the appropriate kiln shell zones.
+
+Use a coherent temperature gradient:
+
+- Blue: Normal/cooler areas.
+- Green: Moderate temperature.
+- Yellow: Elevated temperature.
+- Orange: High temperature.
+- Red: Critical temperature above 370 °C.
+
+Clicking a zone must display a contextual information panel containing:
+
+- Zone identification.
+- Simulated temperature.
+- Configured safety threshold.
+- Temperature deviation.
+- Status.
+- Associated testing scenario.
+
+Include the ability to simulate:
+
+- Normal operating conditions.
+- Increasing shell temperature.
+- Localized hotspots.
+- Critical thermal anomalies.
+- Temperature stabilization after a simulated intervention.
+
+Add a clear label:
+
+**SIMULATION MODE — TEST DATA**
+
+The interface must make it impossible to confuse simulated 3D values with real dashboard measurements.
+
+The testing environment must never overwrite real plant data.
+
+### Testing controls
+
+Provide controls to:
+
+- Select a thermal scenario.
+- Start a simulation.
+- Pause a simulation.
+- Reset the model.
+- Select individual kiln zones.
+- Change simulated temperature values.
+- Visualize thermal evolution.
+
+All simulation operations must affect only the 3D viewer.
+
+---
+
+# PART 7 — AI SUPERVISOR AGENT
+
+Implement a functional AI assistant integrated into KILNOVA.
+
+Its interface should be named:
+
+**AI SUPERVISOR AGENT**
+
+Subtitle:
+
+Operational Data & Report Intelligence.
+
+The agent should act as an industrial decision-support assistant.
+
+It must be able to understand technical questions written in natural language.
+
+Examples:
+
+- Why is the kiln experiencing a temperature anomaly?
+- Have we previously experienced a hotspot in Zone B-04?
+- What caused the increase in free lime?
+- What is the relationship between kiln draft and combustion stability?
+- Which parameters should an operator inspect?
+- What historical incidents resemble the current situation?
+- How can electrical energy consumption be optimized?
+- What is the relationship between tertiary air and precalciner temperature?
+
+### Agent responsibilities
+
+The AI agent must:
+
+1. Interpret the user's question.
+2. Retrieve relevant information from technical documentation.
+3. Search the historical incident database.
+4. Retrieve relevant operational parameters.
+5. Identify similar historical situations.
+6. Explain possible causes.
+7. Present historical corrective actions.
+8. Explain recorded outcomes.
+9. Cite the sources supporting its answers.
+10. Clearly distinguish facts from recommendations and hypotheses.
+
+### Important safety constraints
+
+The AI Supervisor Agent is an ADVISOR.
+
+It must never directly execute industrial control commands.
+
+It must not directly write setpoints to the DCS.
+
+It must not autonomously change fuel flow, kiln speed, fan speed, or other industrial parameters.
+
+Any recommendation must:
+
+- Be explained.
+- Include its supporting evidence.
+- Identify relevant safety constraints.
+- Require human operator validation.
+- Respect the configured operating limits.
+
+The application may demonstrate a future supervised MPC/AI architecture, but must not claim actual closed-loop control unless it is genuinely implemented and authorized.
+
+---
+
+# PART 8 — RAG ARCHITECTURE AND KNOWLEDGE BASE
+
+Implement a genuine Retrieval-Augmented Generation architecture rather than a chatbot that simply searches a few hardcoded keywords.
+
+### Recommended architecture
+
+- PostgreSQL.
+- pgvector.
+- Document ingestion pipeline.
+- Text extraction from PDF files.
+- Document chunking.
+- Embedding generation.
+- Vector similarity search.
+- Metadata filtering.
+- LLM response generation.
+- Source citations.
+
+Use the existing project's architecture where appropriate.
+
+The RAG knowledge base should support:
+
+**1. Technical documentation**
+
+- KILNOVA technical report.
+- Official SCAEK problem statement.
+- Official GEW 2026 guide.
+- Industrial process notes.
+- Equipment specifications.
+- Operational procedures.
+
+**2. Historical incident records**
+
+- Past anomalies.
+- Temperature excursions.
+- Combustion problems.
+- Free lime deviations.
+- Draft pressure problems.
+- Cooler abnormalities.
+- Sensor failures.
+
+**3. Process knowledge**
+
+- Kiln operation.
+- Preheater.
+- Precalciner.
+- Main burner.
+- Secondary air.
+- Tertiary air.
+- Cooler.
+- Exhaust fan.
+- Shell scanner.
+- Thermal balance.
+
+### Document source traceability
+
+Every document-derived response should provide:
+
+- Document name.
+- Relevant section or page when available.
+- Retrieved passage or concise supporting information.
+
+Every incident-derived response should provide:
+
+- Incident ID.
+- Date.
+- Severity.
+- Problem.
+- Historical action.
+- Recorded result.
+
+Never fabricate citations or pretend that an unverified incident is a real plant event.
+
+---
+
+# PART 9 — RAG TEST DATASET
+
+For demonstration and initial testing, create a separate synthetic incident dataset.
+
+IMPORTANT: These are simulated historical examples, not verified SCAEK incident records.
+
+Use the following JSON structure:
+
+```json
+[
+  {
+    "case_id": "CAS-2026-081",
+    "date": "2026-10-14",
+    "severity": "CRITICAL",
+    "problem": "Hotspot detected on Kiln Shell Zone B-04.",
+    "context": "Virole temperature scanner indicated a rise to 385 °C in Zone B-04. Main drive torque increased by 4%. Burn zone pyrometer was steady at 1450 °C.",
+    "action_taken": "The operator deployed external cooling fans to meter 39-43. The advisor recommended reducing main burner gas flow from 10500 Nm3/h to 10200 Nm3/h.",
+    "result_30_min": "Shell temperature stabilized at 375 °C.",
+    "result_60_min": "Shell temperature dropped to 360 °C.",
+    "tags": [
+      "Shell",
+      "Refractory",
+      "Hotspot",
+      "Cooling"
+    ]
+  },
+  {
+    "case_id": "CAS-2026-092",
+    "date": "2026-10-22",
+    "severity": "WARNING",
+    "problem": "Free lime levels increased to 3.1%.",
+    "context": "Laboratory reported high free lime. Soft sensor estimated a low calcination state. Precalciner gas flow was 3000 Nm3/h while kiln feed rate was 260 t/h.",
+    "action_taken": "The advisor recommended adjusting the thermal profile. The operator accepted the recommendation, increased precalciner gas flow to 4500 Nm3/h and reduced kiln feed to 240 t/h.",
+    "result_30_min": "Preheater exit temperature increased to 345 °C.",
+    "result_60_min": "Laboratory confirmed free lime decreased to 2.1%.",
+    "tags": [
+      "Quality",
+      "Free Lime",
+      "Calcination",
+      "Pyroclon",
+      "Feed Rate"
+    ]
+  },
+  {
+    "case_id": "CAS-2026-105",
+    "date": "2026-11-02",
+    "severity": "EMERGENCY",
+    "problem": "Sudden drop in kiln hood draft pressure.",
+    "context": "Firing hood pressure approached positive territory at -0.05 mbar. Oxygen levels decreased at the smoke chamber analyzer.",
+    "action_taken": "A simulated manual fallback was initiated. The operator manually increased the main exhaust fan ID speed from 850 RPM to 950 RPM.",
+    "result_30_min": "Draft pressure returned to -0.15 mbar.",
+    "result_60_min": "Combustion stabilized.",
+    "tags": [
+      "Draft",
+      "Pressure",
+      "Safety",
+      "Tirage"
+    ]
+  }
+]
+```
+
+The database must explicitly identify these records as DEMONSTRATION DATA.
+
+Do not mix them with verified plant records.
+
+### RAG testing questions
+
+The following questions must work:
+
+1. "Has there been a hotspot in Zone B-04 before?"
+2. "What corrective actions were taken historically?"
+3. "How long did it take to stabilize the shell temperature?"
+4. "What caused the free lime deviation?"
+5. "What happened during the kiln draft pressure incident?"
+6. "Which historical incidents involved the main exhaust fan?"
+7. "What is the relationship between kiln feed rate and calcination?"
+
+Expected example:
+
+User:
+
+"Summarize the historical abnormalities in Zone B-04 and how they were resolved."
+
+Expected response:
+
+"The demonstration knowledge base contains incident CAS-2026-081, dated October 14, 2026. The shell scanner recorded a temperature of 385 °C in Zone B-04, exceeding the configured 370 °C threshold. The recorded intervention involved external cooling fans at meters 39-43 and a reduction in main burner gas flow from 10,500 to 10,200 Nm3/h. The demonstration record reports stabilization at 375 °C after 30 minutes and 360 °C after 60 minutes."
+
+The answer must cite CAS-2026-081 and indicate that it is a simulated test record.
+
+---
+
+# PART 10 — INDUSTRIAL PROCESS NOTES AND EQUIPMENT PARAMETERS
+
+I will also provide a photograph containing handwritten notes about the actual industrial installation.
+
+Extract the information carefully and incorporate verified values into the technical knowledge base and relevant interface components.
+
+The handwriting appears to contain the following information. Treat these as preliminary readings that require verification:
+
+### Raw meal and kiln feed
+
+- LSF: approximately 92–94.
+- MS: approximately 2.2–2.35.
+- A/F: approximately 0.6–0.9.
+- Raw meal feed rate: approximately 230–260 t/h.
+- Flour-to-clinker factor: approximately 0.58.
+
+### Preheater and calcination
+
+- Four-stage heat exchanger tower.
+- Two branches.
+- Material entry temperature appears to be approximately 800–830 °C.
+- Preheater outlet temperature requires verification.
+- Decarbonation/calcination information requires verification.
+
+### Kiln and burners
+
+- Main kiln burner.
+- Main burner gas flow appears to be approximately 5,000 Nm3/h in one note.
+- Total burner capacity/flow appears to indicate approximately 13,500 Nm3/h.
+- Fuel is identified as CH4.
+- Kiln rotation speed appears to be approximately 2.14 rpm and variable.
+
+Do not assume that the individual burner flow and total burner flow refer to the same operating condition.
+
+### Air and ventilation
+
+- Two exhaust/draft fans.
+- Fan speed appears to be around 1,000 rpm.
+- Main exhaust fan and cooler ventilation.
+- Primary and secondary air.
+- Tertiary air management must also be incorporated according to the official problem statement.
+
+### Cooler
+
+- Grate cooler.
+- Cooling fans identified as V1 through V10.
+- Separate fan groups for clinker cooling and tempering/cooling functions.
+- Cooler ventilation and pressure under the grate.
+- Cooler draft and fan performance.
+
+### Additional measurements
+
+- Kiln hood pressure appears to be around -0.1 to -0.2, with units and measurement location to be confirmed.
+- Additional temperature, pressure, and burner information appears in the photograph.
+
+### Implementation instructions
+
+Create a structured equipment and process parameter registry.
+
+For each parameter, store:
+
+- Parameter name.
+- Equipment.
+- Value.
+- Unit.
+- Source.
+- Verification status.
+- Operational significance.
+
+Do not turn preliminary handwritten readings into hard safety limits or automatically configured control setpoints.
+
+Where information is unclear, label it:
+
+PENDING PLANT VALIDATION.
+
+The application should be capable of displaying these parameters in the appropriate technical panels and making them searchable through the RAG agent.
+
+---
+
+# PART 11 — ELECTRICAL AND THERMAL ENERGY OPTIMIZATION
+
+Expand the existing KPI architecture to include both thermal and electrical performance.
+
+### Thermal KPIs
+
+- Specific thermal energy consumption per tonne of clinker.
+- Main burner fuel consumption.
+- Precalciner fuel consumption.
+- Total fuel consumption.
+- Alternative fuel ratio.
+- Combustion stability.
+
+### Electrical KPIs
+
+- Specific electrical consumption of the kiln workshop.
+- Main exhaust fan electrical consumption.
+- Cooler fan electrical consumption.
+- Kiln drive electrical consumption.
+- Other relevant equipment consumption where measurements are available.
+
+### Stability KPIs
+
+Track the variability of critical operating parameters:
+
+- Raw meal feed rate.
+- Main burner fuel flow.
+- Precalciner fuel flow.
+- Kiln rotation speed.
+- Main exhaust fan draft.
+- Primary air.
+- Tertiary air.
+- Cooler fan airflow.
+- Relevant pressure and temperature measurements.
+
+Display statistical indicators such as:
+
+- Mean.
+- Standard deviation.
+- Variance.
+- Trend.
+- Stability index where appropriately defined.
+
+Distinguish normal operation from startup, shutdown, and transitional operating regimes.
+
+Do not compare operator performance without accounting for differences in operating conditions.
+
+---
+
+# PART 12 — PREDICTIVE ANALYTICS
+
+Implement an architecture capable of predicting the evolution of critical kiln parameters over a 30–60-minute horizon, as required by the official problem statement.
+
+The prediction module should eventually cover:
+
+- Shell temperature.
+- Free lime.
+- Precalciner temperature.
+- Kiln inlet gas conditions.
+- Draft pressure.
+- Fuel consumption.
+- Electrical consumption.
+- Clinker production.
+
+Use historical data and time-series modeling.
+
+Account for process delays and material residence time.
+
+The official problem statement identifies a delay of approximately 30–60 minutes between corrective actions and observable clinker-quality effects.
+
+The system must therefore account for:
+
+- Time alignment.
+- Delayed responses.
+- Nonlinear relationships.
+- Coupling between the kiln and cooler.
+- Differences in laboratory and sensor sampling frequency.
+
+Use soft sensors where appropriate to estimate quality parameters between laboratory measurements.
+
+Distinguish predicted measurements from actual measurements visually.
+
+If real historical data is unavailable, implement a clearly labeled simulation demonstrating the prediction architecture.
+
+Do not claim predictive accuracy without validation.
+
+---
+
+# PART 13 — SYSTEM HEALTH AND SENSOR MONITORING
+
+Create or improve the System Health section.
+
+Monitor:
+
+- Sensor availability.
+- Missing data.
+- Sensor drift.
+- Abnormal readings.
+- Communication status.
+- Data freshness.
+- Analyzer reliability.
+- Data synchronization.
+
+Display sensor states using:
+
+- Nominal.
+- Warning.
+- Flagged.
+- Offline.
+
+Include the following existing demonstration summary:
+
+3/6 Nominal — 3 Flagged.
+
+Allow the operator to inspect each sensor and its associated parameter.
+
+The system must distinguish a process anomaly from a faulty sensor.
+
+A sensor failure must not automatically be interpreted as a real process event.
+
+---
+
+# PART 14 — DATA ARCHITECTURE AND SECURITY
+
+Maintain a clear separation between:
+
+1. Real operational dashboard data.
+2. 3D simulation data.
+3. Synthetic RAG demonstration incidents.
+4. Verified technical documentation.
+5. Predicted analytical outputs.
+
+Each data source must have explicit metadata and provenance.
+
+For a future industrial deployment, design compatibility with:
+
+- DCS.
+- Industrial historians.
+- OPC-UA.
+- PostgreSQL.
+- pgvector.
+- Secure APIs.
+- Industrial OT/IT separation.
+
+Respect industrial cybersecurity requirements.
+
+Do not implement unauthorized direct access to real plant equipment.
+
+Any future DCS integration must be read-only initially, with supervised write capabilities considered only after formal engineering approval.
+
+---
+
+# PART 15 — USER EXPERIENCE AND FUNCTIONALITY
+
+All major interface elements must be functional rather than decorative.
+
+Implement:
+
+- Working navigation.
+- Interactive dashboard widgets.
+- Responsive charts.
+- Interactive 3D model.
+- Simulation controls.
+- AI chat.
+- RAG retrieval.
+- Incident history.
+- Sensor inspection.
+- System health monitoring.
+- Thermal anomaly visualization.
+- Manual fallback demonstration.
+
+Provide useful loading, error, empty, and success states.
+
+Ensure the application works on desktop and tablet.
+
+Do not leave important buttons with no action.
+
+---
+
+# PART 16 — REQUIRED DELIVERABLES
+
+After inspecting the existing project, implement the following:
+
+**1. Branding and navigation**
+- Integrate the supplied logo.
+- Separate public website navigation.
+- Separate operational application navigation.
+- Move Contact Us outside the SCADA application.
+
+**2. Dashboard**
+- Preserve Overall Kiln Status.
+- Enforce the configured 370 °C threshold.
+- Preserve the existing real dashboard data.
+- Add the missing electrical and stability KPIs.
+- Incorporate alternative fuel and tertiary air monitoring where data is available.
+
+**3. 3D digital twin**
+- Load my supplied 3D model.
+- Add independent testing data.
+- Implement interactive thermal zones.
+- Implement simulation controls.
+- Ensure complete isolation from real dashboard state.
+
+**4. AI Supervisor Agent**
+- Implement the chat interface.
+- Integrate document-based RAG.
+- Integrate incident-based RAG.
+- Provide source citations.
+- Provide historical comparisons.
+- Generate explainable recommendations.
+- Enforce advisor-only operation.
+
+**5. Backend**
+- Implement document ingestion.
+- Implement chunking and embeddings.
+- Implement vector retrieval.
+- Implement incident database retrieval.
+- Implement source-aware response generation.
+- Provide synthetic incident data for testing.
+
+**6. Industrial monitoring**
+- Include electrical and thermal KPIs.
+- Include variance and stability monitoring.
+- Include sensor health.
+- Include predictive analytics architecture.
+
+**7. Documentation**
+- Explain the implemented architecture.
+- Document the data sources.
+- Identify simulated versus real measurements.
+- Explain how to add new industrial documents.
+- Explain how to add historical incidents.
+- Explain how to test the RAG system.
+- Explain how to run the 3D simulation.
+
+---
+
+# PART 17 — IMPLEMENTATION STRATEGY
+
+Work in the following order:
+
+**Phase 1: Project inspection**
+
+Inspect all existing source code, UI components, data structures, routes, backend services, and supplied assets.
+
+Identify what already exists and what needs modification.
+
+**Phase 2: Preserve and improve the frontend**
+
+Implement the branding, navigation separation, dashboard improvements, and 370 °C threshold.
+
+**Phase 3: Integrate the 3D model**
+
+Load the supplied assets and implement an isolated testing environment.
+
+Verify that modifying simulated temperatures does not change the main dashboard.
+
+**Phase 4: Build the RAG knowledge base**
+
+Ingest the supplied technical documents and handwritten-note transcription, clearly marking unverified values.
+
+Add the synthetic incident dataset in a separate demonstration collection.
+
+**Phase 5: Implement the AI agent**
+
+Connect retrieval, citations, chat, and explainable industrial responses.
+
+**Phase 6: Integrate KPIs and predictive architecture**
+
+Implement electrical consumption, thermal consumption, process stability, and predictive monitoring.
+
+**Phase 7: Test the entire application**
+
+Verify the following:
+
+- No existing dashboard data has been accidentally overwritten.
+- The supplied 3D model loads correctly.
+- 3D testing data is isolated.
+- The 370 °C threshold is consistent.
+- Temperatures above the threshold trigger critical alerts.
+- The AI agent retrieves relevant historical incidents.
+- The AI agent cites its sources.
+- Synthetic data is never represented as genuine plant data.
+- Public navigation is separate from operational navigation.
+- Contact Us is no longer inside the operational application.
+- No important controls are decorative or nonfunctional.
+
+---
+
+# FINAL INSTRUCTIONS
+
+I want a complete, coherent, professional implementation, not just a visual mockup.
+
+Prioritize the integrity of the existing project and the accuracy of industrial information.
+
+Do not remove existing functionality simply to simplify development.
+
+Do not replace the supplied 3D model.
+
+Do not overwrite real dashboard data with testing data.
+
+Do not fabricate real industrial incidents, measurements, financial savings, or model accuracy.
+
+Do not claim that the AI controls the real kiln.
+
+The result must demonstrate how KILNOVA can combine industrial monitoring, a 3D digital twin, historical incident intelligence, predictive analytics, and AI-assisted decision-making in one integrated platform.
+
+**Most importantly: preserve what already works, improve what is missing, and implement the requested functionality without compromising the existing KILNOVA identity or architecture.**
+
+Begin by inspecting the complete project and all attached files. Then provide a concise implementation plan and proceed with the actual modifications.

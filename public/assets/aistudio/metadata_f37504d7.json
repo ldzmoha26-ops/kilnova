@@ -1,0 +1,8 @@
+{
+  "name": "KilnVision 3D",
+  "description": "Real-time 3D digital twin of a cement rotary kiln production line with simulated process telemetry, thermal shell mapping, fault scenarios, and AI forecast ghost overlay.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Outfit", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Liberation Sans", sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Liberation Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-kilnova-black: #0B0C0D;
+  --color-kilnova-ink: #111827;
+  --color-kilnova-white: #FFFFFF;
+  --color-kilnova-surface: #F7F9FC;
+  --color-kilnova-blue: #1D64D8;
+  --color-kilnova-blue-deep: #0B4EA2;
+  --color-kilnova-blue-bright: #3B82F6;
+}
+
+@layer base {
+  html {
+    background-color: #0B0C0D;
+    color: #0B0C0D;
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+    overflow-x: clip;
+  }
+
+  body {
+    background-color: #0B0C0D;
+    color: #0B0C0D;
+    margin: 0;
+    padding: 0;
+    overflow-x: clip;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+  }
+}
+
+/* Subtle architectural scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #94A3B8;
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #1D64D8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

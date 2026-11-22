@@ -1,0 +1,168 @@
+{
+  "entities": {
+    "RagDocument": {
+      "title": "RagDocument",
+      "description": "Industrial technical document or procedure ingested into the KILNOVA RAG knowledge base by an authenticated engineer.",
+      "type": "object",
+      "properties": {
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the engineer who uploaded this document."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200,
+          "description": "Document title."
+        },
+        "section": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Relevant section or chapter."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160,
+          "description": "Provenance or source document name."
+        },
+        "collection": {
+          "type": "string",
+          "enum": ["technical_docs", "equipment_registry", "procedures"],
+          "description": "Logical knowledge base collection."
+        },
+        "verificationStatus": {
+          "type": "string",
+          "enum": ["VERIFIED", "PENDING PLANT VALIDATION", "PROTOTYPE CONFIGURED"],
+          "description": "Verification status of the technical content."
+        },
+        "content": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 12000,
+          "description": "Plain text technical content for chunking and embedding."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of document ingestion."
+        }
+      },
+      "required": [
+        "authorUid",
+        "title",
+        "section",
+        "source",
+        "collection",
+        "verificationStatus",
+        "content",
+        "createdAt"
+      ]
+    },
+    "RagIncident": {
+      "title": "RagIncident",
+      "description": "Historical or demonstration kiln incident record stored for RAG retrieval and operational comparison.",
+      "type": "object",
+      "properties": {
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the engineer who logged the record."
+        },
+        "case_id": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 40,
+          "pattern": "^[A-Z0-9\\-]+$",
+          "description": "Unique incident identifier (e.g. CAS-2026-112)."
+        },
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "Incident date in YYYY-MM-DD format."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["WARNING", "CRITICAL", "EMERGENCY"],
+          "description": "Industrial alarm severity."
+        },
+        "problem": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 300,
+          "description": "Concise summary of the abnormal kiln condition."
+        },
+        "context": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 2000,
+          "description": "Operating measurements and process context."
+        },
+        "action_taken": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 2000,
+          "description": "Operator corrective actions applied."
+        },
+        "result_30_min": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 400,
+          "description": "Observed state 30 minutes after intervention."
+        },
+        "result_60_min": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 400,
+          "description": "Observed state 60 minutes after intervention."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Up to 8 domain tags."
+        },
+        "dataOrigin": {
+          "type": "string",
+          "enum": ["DEMONSTRATION DATA", "USER SUBMITTED LOG"],
+          "description": "Explicit provenance marker separating synthetic demo records from user logs."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of record creation."
+        }
+      },
+      "required": [
+        "authorUid",
+        "case_id",
+        "date",
+        "severity",
+        "problem",
+        "context",
+        "action_taken",
+        "result_30_min",
+        "result_60_min",
+        "tags",
+        "dataOrigin",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/rag_documents/{docId}": {
+      "schema": { "$ref": "#/entities/RagDocument" },
+      "description": "User-contributed technical documentation persisted for the KILNOVA RAG knowledge base."
+    },
+    "/rag_incidents/{incidentId}": {
+      "schema": { "$ref": "#/entities/RagIncident" },
+      "description": "User-contributed historical or demonstration incident logs persisted for KILNOVA RAG retrieval."
+    }
+  }
+}
