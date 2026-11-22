@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -24,33 +24,17 @@ import {
 import { SYSTEM_HEALTH_SENSORS, type OperatingRegime } from '../data/industrialAnalytics';
 import { SYNTHETIC_DEMO_INCIDENTS } from '../rag/knowledgeCorpus';
 import type {
-  AssistantLanguage,
   HistoricalIncidentRecord,
-  KnowledgeCollection,
   KnowledgeDocument,
-  RagCitation,
-  RagQueryResponse,
 } from '../rag/types';
 import { auth, saveUserRagDocument, saveUserRagIncident } from '../lib/firebase';
 import { getVoiceStatusMeta } from '../voice/pcmAudio';
-import { useKilnovaVoiceAgent, type VoiceTurnCommit } from '../voice/useKilnovaVoiceAgent';
+import { useKilnovaAssistant } from '../context/KilnovaAssistantContext';
 import { IndustrialKpiPanel } from './IndustrialKpiPanel';
 import { ParameterRegistryPanel } from './ParameterRegistryPanel';
 
 interface SupervisorDashboardPageProps {
   onOpenSystemHealth?: () => void;
-}
-
-interface RagChatMessage {
-  id: string;
-  role: 'supervisor' | 'assistant';
-  text: string;
-  channel?: 'text' | 'voice';
-  citations?: RagCitation[];
-  model?: string;
-  usedEmbeddings?: boolean;
-  advisorDisclaimer?: string;
-  error?: boolean;
 }
 
 const RAG_QUICK_PROMPTS = [
@@ -59,15 +43,6 @@ const RAG_QUICK_PROMPTS = [
   'Which workshop equipment dominates electrical energy (kWh/t)?',
   'Distinguish the faulty O2 analyzer from real kiln process anomalies.',
 ] as const;
-
-const INITIAL_ASSISTANT_MESSAGES: RagChatMessage[] = [
-  {
-    id: 'init-rag-welcome',
-    role: 'assistant',
-    text: 'KILNOVA AI Supervisor Agent is connected to the Gemini RAG knowledge base (technical documents, parameter registry, and synthetic demonstration incident archive CAS-2026-081 / 092 / 105). Ask about the 370 °C shell limit, PRC-2048, electrical/thermal KPIs, or historical corrective actions.',
-    advisorDisclaimer: 'Advisor only — does not execute live DCS commands.',
-  },
-];
 
 function statusIndicatorClasses(status: KilnCondition): { dot: string; text: string } {
   if (status === 'ANOMALY') {
@@ -86,13 +61,21 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
   const [lowerTab, setLowerTab] = useState<'kpis' | 'incidents' | 'registry'>('kpis');
   const [regime, setRegime] = useState<OperatingRegime>('NORMAL');
 
-  // Real RAG AI Supervisor Agent state (shared across text & live voice)
-  const [messages, setMessages] = useState<RagChatMessage[]>(INITIAL_ASSISTANT_MESSAGES);
-  const [draftPrompt, setDraftPrompt] = useState('');
-  const [collectionFilter, setCollectionFilter] = useState<KnowledgeCollection | 'all'>('all');
-  const [assistantLanguage, setAssistantLanguage] = useState<AssistantLanguage>('auto');
-  const [isQuerying, setIsQuerying] = useState(false);
-  const [expandedCitation, setExpandedCitation] = useState<RagCitation | null>(null);
+  // Single shared KILNOVA AI Assistant state (shared with Operator Dashboard & floating voice assistant)
+  const {
+    messages,
+    draftPrompt,
+    setDraftPrompt,
+    collectionFilter,
+    setCollectionFilter,
+    assistantLanguage,
+    setAssistantLanguage,
+    isQuerying,
+    setExpandedCitation,
+    setOperationalContext,
+    sendTextQuery,
+    voice,
+  } = useKilnovaAssistant();
 
   const [incidents, setIncidents] = useState<HistoricalIncidentRecord[]>([
     ...SYNTHETIC_DEMO_INCIDENTS,
@@ -182,50 +165,19 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
   const anomalyCount = INITIAL_PROCESS_HISTORY.filter((r) => r.condition === 'ANOMALY').length;
   const warningCount = INITIAL_PROCESS_HISTORY.filter((r) => r.condition === 'WARNING').length;
 
-  const handleVoiceTurnCommit = useCallback((turn: VoiceTurnCommit) => {
-    hasInteractedRef.current = true;
-    setMessages((prev) => {
-      const next = [...prev];
-      const baseStamp = Date.now();
-      if (turn.userTranscript) {
-        next.push({
-          id: `vu-${baseStamp}`,
-          role: 'supervisor',
-          channel: 'voice',
-          text: turn.userTranscript,
-        });
-      }
-      if (turn.assistantTranscript) {
-        next.push({
-          id: `va-${baseStamp + 1}`,
-          role: 'assistant',
-          channel: 'voice',
-          text: turn.assistantTranscript,
-          citations: turn.citations,
-          model: 'gemini-3.8-live',
-          advisorDisclaimer:
-            turn.advisorDisclaimer ?? 'Advisor only — does not execute live DCS commands.',
-        });
-      }
-      return next;
-    });
-  }, []);
-
-  const voice = useKilnovaVoiceAgent({
-    language: assistantLanguage,
-    collectionFilter,
-    operationalContext: {
+  useEffect(() => {
+    setOperationalContext({
       shellMaxTemp: 412,
       burningZoneTemp: 1486,
       affectedZone: 'Shell Ring B-04 · Meter 39–43',
       condition: 'ANOMALY',
       flaggedSensors: flaggedSensorsCount,
-    },
-    onCommitTurn: handleVoiceTurnCommit,
-  });
+    });
+  }, [flaggedSensorsCount, setOperationalContext]);
 
-  const voiceMeta = getVoiceStatusMeta(voice.voiceState);
-  const isVoiceBarVisible = voice.voiceState !== 'idle' || Boolean(voice.voiceError);
+  const voiceMeta = getVoiceStatusMeta(voice.voiceState, voice.operatingMode);
+  const isVoiceBarVisible =
+    voice.voiceState !== 'idle' || Boolean(voice.voiceError) || Boolean(voice.fallbackNotice);
 
   useEffect(() => {
     if (!hasInteractedRef.current && !voice.liveUserDraft && !voice.liveAssistantDraft) return;
@@ -236,69 +188,8 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
   }, [voice.liveUserDraft, voice.liveAssistantDraft]);
 
   const sendSupervisorQuery = async (question: string) => {
-    const trimmed = question.trim();
-    if (!trimmed || isQuerying) return;
-
-    const stamp = Date.now();
     hasInteractedRef.current = true;
-    setMessages((prev) => [
-      ...prev,
-      { id: `u-${stamp}`, role: 'supervisor', channel: 'text', text: trimmed },
-    ]);
-    setDraftPrompt('');
-    setIsQuerying(true);
-
-    try {
-      const response = await fetch('/api/rag/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: trimmed,
-          collectionFilter,
-          preferredLanguage: assistantLanguage,
-          operationalContext: {
-            shellMaxTemp: 412,
-            burningZoneTemp: 1486,
-            affectedZone: 'Shell Ring B-04 · Meter 39–43',
-            condition: 'ANOMALY',
-            flaggedSensors: flaggedSensorsCount,
-          },
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || `HTTP ${response.status} from RAG API`);
-      }
-
-      const data = payload as RagQueryResponse;
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `a-${Date.now()}`,
-          role: 'assistant',
-          text: data.answer,
-          citations: data.citations,
-          model: data.model,
-          usedEmbeddings: data.usedEmbeddings,
-          advisorDisclaimer: data.advisorDisclaimer,
-        },
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `err-${Date.now()}`,
-          role: 'assistant',
-          error: true,
-          text:
-            err instanceof Error
-              ? `RAG service error: ${err.message}`
-              : 'Unable to reach AI Supervisor RAG backend.',
-        },
-      ]);
-    } finally {
-      setIsQuerying(false);
-    }
+    await sendTextQuery(question);
   };
 
   const handleFormSubmit = (e: FormEvent) => {
@@ -1066,11 +957,7 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
                   type="button"
                   data-testid="voice-mic-btn"
                   onClick={() => {
-                    if (voice.voiceState === 'idle' || voice.voiceState === 'error') {
-                      void voice.startVoiceSession();
-                    } else {
-                      voice.endVoiceSession();
-                    }
+                    void voice.startVoiceSession();
                   }}
                   aria-label={
                     voice.voiceState === 'idle' || voice.voiceState === 'error'
@@ -1301,78 +1188,7 @@ export function SupervisorDashboardPage({ onOpenSystemHealth }: SupervisorDashbo
         </div>
       )}
 
-      {/* White Citation Detail Modal */}
-      {expandedCitation && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="citation-modal-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        >
-          <div
-            aria-hidden="true"
-            onClick={() => setExpandedCitation(null)}
-            className="absolute inset-0 bg-[#0B0C0D]/68 backdrop-blur-sm"
-          />
-          <div className="relative z-10 w-full max-w-xl rounded-xl border border-[#CBD5E1] bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-3 border-b border-[#E2E8F0] pb-3">
-              <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#1D64D8]">
-                  RAG Source Citation · {expandedCitation.collection}
-                </p>
-                <h2
-                  id="citation-modal-title"
-                  className="mt-1 font-display text-lg font-semibold text-[#0B0C0D]"
-                >
-                  {expandedCitation.sectionOrCaseId} — {expandedCitation.sourceName}
-                </h2>
-                <span className="mt-1 inline-block rounded border border-[#FDE68A] bg-[#FFFBEB] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#92400E]">
-                  {expandedCitation.verificationStatus}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExpandedCitation(null)}
-                aria-label="Close source citation"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#CBD5E1] text-[#475569] hover:text-[#0B0C0D] cursor-pointer"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-
-            <p className="mt-4 whitespace-pre-wrap text-xs leading-relaxed text-[#334155]">
-              {expandedCitation.excerpt}
-            </p>
-
-            {expandedCitation.incidentMeta && (
-              <div className="mt-4 space-y-1.5 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3.5 text-xs text-[#1E293B]">
-                <p className="font-mono text-[10px] font-semibold uppercase text-[#92400E]">
-                  {expandedCitation.incidentMeta.dataOrigin}
-                </p>
-                <p>
-                  <strong>Action Taken:</strong> {expandedCitation.incidentMeta.action_taken}
-                </p>
-                <p>
-                  <strong>+30 min:</strong> {expandedCitation.incidentMeta.result_30_min}
-                </p>
-                <p>
-                  <strong>+60 min:</strong> {expandedCitation.incidentMeta.result_60_min}
-                </p>
-              </div>
-            )}
-
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setExpandedCitation(null)}
-                className="rounded-md bg-[#0B0C0D] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1D64D8] cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Citation Detail Modal is rendered once by shared KilnovaFloatingAssistant */}
 
       {/* White Add Technical Document Modal */}
       {docModalOpen && (

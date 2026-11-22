@@ -2,7 +2,7 @@ import type {
   EquipmentParameterEntry,
   HistoricalIncidentRecord,
   KnowledgeDocument,
-} from './types';
+} from './types.ts';
 
 /**
  * SEPARATE DEMONSTRATION INCIDENT DATASET (Part 9).

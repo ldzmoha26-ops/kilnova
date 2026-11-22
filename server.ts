@@ -3,9 +3,14 @@ import http from 'node:http';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { KilnovaRagEngine } from './src/rag/vectorEngine';
-import { attachKilnovaLiveVoiceServer, GEMINI_LIVE_MODEL } from './src/voice/liveVoiceBridge';
-import type { AssistantLanguage, HistoricalIncidentRecord, KnowledgeCollection } from './src/rag/types';
+import { KilnovaRagEngine } from './src/rag/vectorEngine.ts';
+import { attachKilnovaLiveVoiceServer, GEMINI_LIVE_MODEL } from './src/voice/liveVoiceBridge.ts';
+import {
+  GEMINI_STT_MODEL,
+  GEMINI_TTS_MODEL,
+  runStandardVoiceTurn,
+} from './src/voice/standardVoiceService.ts';
+import type { AssistantLanguage, HistoricalIncidentRecord, KnowledgeCollection } from './src/rag/types.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,16 +36,27 @@ const VALID_SEVERITIES: ReadonlySet<string> = new Set(['WARNING', 'CRITICAL', 'E
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '1mb' }));
+  app.set('trust proxy', 1);
+  // Route-scoped 8mb JSON body cap for base64 recorded speech on Standard Voice fallback; keep default routes at 1mb
+  const standardVoiceJsonParser = express.json({ limit: '8mb' });
+  const defaultJsonParser = express.json({ limit: '1mb' });
+  app.use((req, res, next) => {
+    if (req.path === '/api/voice/standard') {
+      return standardVoiceJsonParser(req, res, next);
+    }
+    return defaultJsonParser(req, res, next);
+  });
 
   const ragEngine = new KilnovaRagEngine(process.env.GEMINI_API_KEY);
   void ragEngine.ensureEmbeddings().catch(() => {});
 
-  // Health endpoint
+  // Health endpoint (exposes capability flags only — never secrets)
   app.get('/api/health', (_req, res) => {
+    const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
     res.json({
       status: 'ok',
       service: 'kilnova-scada-rag',
+      environment: isProduction ? 'production' : 'development',
       documents: ragEngine.getDocuments().length,
       incidents: ragEngine.getIncidents().length,
       parameters: ragEngine.getParameters().length,
@@ -48,6 +64,11 @@ async function startServer() {
       configuredShellLimitC: 370,
       voiceLiveModel: GEMINI_LIVE_MODEL,
       voiceWsPath: '/api/voice/live',
+      voiceSttModel: GEMINI_STT_MODEL,
+      voiceTtsModel: GEMINI_TTS_MODEL,
+      voiceStandardPath: '/api/voice/standard',
+      liveVoiceConfigured: hasGeminiKey,
+      standardVoiceConfigured: hasGeminiKey,
     });
   });
 
@@ -232,6 +253,57 @@ async function startServer() {
       console.error('RAG query failed:', err);
       const message = err instanceof Error ? err.message : 'AI Supervisor Agent query failed.';
       res.status(502).json({ error: message });
+    }
+  });
+
+  // Secondary Mode: Standard Voice HTTPS Fallback (STT -> Existing RAG -> TTS)
+  app.post('/api/voice/standard', async (req, res) => {
+    try {
+      const { audioBase64, mimeType, collectionFilter, preferredLanguage, operationalContext } =
+        req.body ?? {};
+      if (typeof audioBase64 !== 'string' || typeof mimeType !== 'string') {
+        return res.status(400).json({
+          error: 'Invalid voice payload. Required: audioBase64 and mimeType.',
+        });
+      }
+
+      const safeFilter =
+        collectionFilter === 'all' || VALID_COLLECTIONS.has(collectionFilter)
+          ? collectionFilter
+          : 'all';
+
+      const safeLanguage: AssistantLanguage =
+        preferredLanguage === 'en' || preferredLanguage === 'fr' || preferredLanguage === 'ar'
+          ? preferredLanguage
+          : 'auto';
+
+      const result = await runStandardVoiceTurn(
+        ragEngine,
+        {
+          audioBase64,
+          mimeType,
+          collectionFilter: safeFilter,
+          preferredLanguage: safeLanguage,
+          operationalContext:
+            operationalContext && typeof operationalContext === 'object'
+              ? operationalContext
+              : undefined,
+        },
+        process.env.GEMINI_API_KEY
+      );
+
+      res.json(result);
+    } catch (err) {
+      console.error('Standard Voice fallback failed:', err);
+      const message = err instanceof Error ? err.message : 'Standard Voice processing failed.';
+      const status =
+        message.includes('Unsupported audio format') ||
+        message.includes('empty') ||
+        message.includes('5 MB') ||
+        message.includes('No intelligible speech')
+          ? 400
+          : 502;
+      res.status(status).json({ error: message });
     }
   });
 

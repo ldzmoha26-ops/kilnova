@@ -13,6 +13,8 @@ import { SupervisorDashboardPage } from './components/SupervisorDashboardPage';
 import { SystemHealthPage } from './components/SystemHealthPage';
 import { ManualFallbackPage } from './components/ManualFallbackPage';
 import { AuthModal } from './components/AuthModal';
+import { KilnovaFloatingAssistant } from './components/KilnovaFloatingAssistant';
+import { KilnovaAssistantProvider } from './context/KilnovaAssistantContext';
 import { COPY_BY_LOCALE } from './theme/themeConfig';
 import {
   auth,
@@ -228,7 +230,8 @@ export default function App() {
 
   return (
     <AppErrorBoundary>
-      <div dir="ltr" data-active-page={page} className="min-h-screen">
+      <KilnovaAssistantProvider>
+        <div dir="ltr" data-active-page={page} className="min-h-screen">
         <Navbar
           mode={navMode}
           activeTab={activeNavTab}
@@ -285,7 +288,10 @@ export default function App() {
           onClose={() => setAuthOpen(false)}
           onAuthenticated={handleAuthenticated}
         />
-      </div>
+
+        <KilnovaFloatingAssistant visible={page === 'operator' || page === 'supervisor'} />
+        </div>
+      </KilnovaAssistantProvider>
     </AppErrorBoundary>
   );
 }

@@ -1,7 +1,13 @@
 /**
- * Pure PCM16 audio encoding/decoding, resampling, RMS level estimation,
- * and honest voice session state helpers for Gemini Live API (16kHz in / 24kHz out).
+ * Pure PCM16 / WAV audio encoding & decoding, resampling, RMS level estimation,
+ * operating mode badges, and honest voice session state helpers for KILNOVA.
  */
+
+export type VoiceOperatingMode =
+  | 'LIVE_VOICE'
+  | 'STANDARD_VOICE'
+  | 'TEXT_ONLY'
+  | 'CONNECTION_ERROR';
 
 export type VoiceSessionState =
   | 'idle'
@@ -19,7 +25,47 @@ export interface VoiceStatusMeta {
   textColorClass: string;
 }
 
-export function getVoiceStatusMeta(state: VoiceSessionState): VoiceStatusMeta {
+export interface OperatingModeMeta {
+  label: 'LIVE VOICE' | 'STANDARD VOICE' | 'TEXT ONLY' | 'CONNECTION ERROR';
+  badgeClass: string;
+  dotClass: string;
+}
+
+export function getOperatingModeMeta(mode: VoiceOperatingMode): OperatingModeMeta {
+  switch (mode) {
+    case 'LIVE_VOICE':
+      return {
+        label: 'LIVE VOICE',
+        badgeClass: 'border-[#A7F3D0] bg-[#ECFDF5] text-[#065F46]',
+        dotClass: 'bg-[#059669]',
+      };
+    case 'STANDARD_VOICE':
+      return {
+        label: 'STANDARD VOICE',
+        badgeClass: 'border-[#BFDBFE] bg-[#EFF6FF] text-[#0B4EA2]',
+        dotClass: 'bg-[#1D64D8]',
+      };
+    case 'TEXT_ONLY':
+      return {
+        label: 'TEXT ONLY',
+        badgeClass: 'border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]',
+        dotClass: 'bg-[#D97706]',
+      };
+    case 'CONNECTION_ERROR':
+    default:
+      return {
+        label: 'CONNECTION ERROR',
+        badgeClass: 'border-[#FECACA] bg-[#FEF2F2] text-[#991B1B]',
+        dotClass: 'bg-[#DC2626]',
+      };
+  }
+}
+
+export function getVoiceStatusMeta(
+  state: VoiceSessionState,
+  mode: VoiceOperatingMode = 'LIVE_VOICE'
+): VoiceStatusMeta {
+  const modeSuffix = mode === 'STANDARD_VOICE' ? 'Standard' : 'Live';
   switch (state) {
     case 'requesting_mic':
       return {
@@ -37,39 +83,39 @@ export function getVoiceStatusMeta(state: VoiceSessionState): VoiceStatusMeta {
       };
     case 'listening':
       return {
-        label: 'Listening · Live',
+        label: `Listening · ${modeSuffix}`,
         isLiveConnected: true,
         dotColorClass: 'bg-[#059669]',
         textColorClass: 'text-[#065F46]',
       };
     case 'thinking':
       return {
-        label: 'Searching RAG…',
+        label: mode === 'STANDARD_VOICE' ? 'Transcribing & Searching RAG…' : 'Searching RAG…',
         isLiveConnected: true,
         dotColorClass: 'bg-[#1D64D8] animate-pulse',
         textColorClass: 'text-[#0B4EA2]',
       };
     case 'speaking':
       return {
-        label: 'Speaking · Live',
+        label: `Speaking · ${modeSuffix}`,
         isLiveConnected: true,
         dotColorClass: 'bg-[#1D64D8]',
         textColorClass: 'text-[#0B4EA2]',
       };
     case 'error':
       return {
-        label: 'Voice Unavailable',
+        label: mode === 'TEXT_ONLY' ? 'Text Only' : 'Voice Unavailable',
         isLiveConnected: false,
-        dotColorClass: 'bg-[#DC2626]',
-        textColorClass: 'text-[#991B1B]',
+        dotColorClass: mode === 'TEXT_ONLY' ? 'bg-[#D97706]' : 'bg-[#DC2626]',
+        textColorClass: mode === 'TEXT_ONLY' ? 'text-[#92400E]' : 'text-[#991B1B]',
       };
     case 'idle':
     default:
       return {
-        label: 'Voice Off',
+        label: mode === 'TEXT_ONLY' ? 'Text Only' : 'Ready · Voice Off',
         isLiveConnected: false,
-        dotColorClass: 'bg-[#94A3B8]',
-        textColorClass: 'text-[#64748B]',
+        dotColorClass: mode === 'TEXT_ONLY' ? 'bg-[#D97706]' : 'bg-[#94A3B8]',
+        textColorClass: mode === 'TEXT_ONLY' ? 'text-[#92400E]' : 'text-[#64748B]',
       };
   }
 }
@@ -109,7 +155,7 @@ export function downsampleBuffer(
   return result;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
   }
@@ -122,7 +168,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function base64ToBytes(base64: string): Uint8Array {
+export function base64ToBytes(base64: string): Uint8Array {
   if (typeof Buffer !== 'undefined') {
     const buf = Buffer.from(base64, 'base64');
     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -146,6 +192,44 @@ export function float32ToPcm16Base64(samples: Float32Array): string {
     const int16 = clamped < 0 ? Math.round(clamped * 0x8000) : Math.round(clamped * 0x7fff);
     view.setInt16(i * 2, int16, true);
   }
+  return bytesToBase64(new Uint8Array(buffer));
+}
+
+/**
+ * Encodes Float32 mono samples into a complete RIFF WAV (16-bit PCM) base64 payload
+ * for universal browser fallback in Standard Voice mode (Safari/iOS/Firefox/Chrome).
+ */
+export function encodeFloat32ToWavBase64(samples: Float32Array, sampleRate = 16000): string {
+  const dataBytes = samples.length * 2;
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+
+  const writeAscii = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeAscii(0, 'RIFF');
+  view.setUint32(4, 36 + dataBytes, true);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeAscii(36, 'data');
+  view.setUint32(40, dataBytes, true);
+
+  for (let i = 0; i < samples.length; i++) {
+    const clamped = Math.max(-1, Math.min(1, samples[i]));
+    const int16 = clamped < 0 ? Math.round(clamped * 0x8000) : Math.round(clamped * 0x7fff);
+    view.setInt16(44 + i * 2, int16, true);
+  }
+
   return bytesToBase64(new Uint8Array(buffer));
 }
 
@@ -178,9 +262,14 @@ export function computeRmsLevel(samples: Float32Array): number {
 }
 
 /**
- * Produces clear, honest, actionable error messages for mic/audio/network/Gemini Live failures.
+ * Produces clear, honest, actionable error messages for mic/audio/network/Gemini Live failures,
+ * plus whether the failure requires TEXT_ONLY mode (missing/denied mic hardware).
  */
-export function mapVoiceErrorMessage(err: unknown): { code: string; message: string } {
+export function mapVoiceErrorMessage(err: unknown): {
+  code: string;
+  message: string;
+  requiresTextOnly: boolean;
+} {
   if (err && typeof err === 'object') {
     const name = 'name' in err ? String((err as { name?: unknown }).name) : '';
     const msg = 'message' in err ? String((err as { message?: unknown }).message) : '';
@@ -189,7 +278,8 @@ export function mapVoiceErrorMessage(err: unknown): { code: string; message: str
       return {
         code: 'MIC_PERMISSION_DENIED',
         message:
-          'Microphone permission was denied. Allow microphone access in your browser settings to use voice, or continue with text chat.',
+          'Microphone permission was denied. Allow microphone access in your browser settings to speak, or continue with text chat.',
+        requiresTextOnly: true,
       };
     }
     if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
@@ -197,6 +287,7 @@ export function mapVoiceErrorMessage(err: unknown): { code: string; message: str
         code: 'MIC_UNAVAILABLE',
         message:
           'No microphone device was detected on this workstation. Connect a microphone or continue using text chat.',
+        requiresTextOnly: true,
       };
     }
     if (name === 'NotReadableError' || name === 'TrackStartError') {
@@ -204,17 +295,20 @@ export function mapVoiceErrorMessage(err: unknown): { code: string; message: str
         code: 'MIC_BUSY',
         message:
           'Microphone is currently in use by another application or could not be opened. Text chat remains available.',
+        requiresTextOnly: true,
       };
     }
     if (msg) {
       return {
         code: 'VOICE_ERROR',
         message: msg,
+        requiresTextOnly: false,
       };
     }
   }
   return {
     code: 'VOICE_ERROR',
     message: 'Unable to start voice session. Text chat remains available.',
+    requiresTextOnly: false,
   };
 }

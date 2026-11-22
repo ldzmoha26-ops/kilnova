@@ -1,9 +1,9 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import {
   EQUIPMENT_PARAMETER_REGISTRY,
   INITIAL_TECHNICAL_DOCUMENTS,
   SYNTHETIC_DEMO_INCIDENTS,
-} from './knowledgeCorpus';
+} from './knowledgeCorpus.ts';
 import type {
   AssistantLanguage,
   DocumentChunk,
@@ -14,7 +14,7 @@ import type {
   RagCitation,
   RagQueryRequest,
   RagQueryResponse,
-} from './types';
+} from './types.ts';
 
 export const EMBEDDING_MODEL = 'gemini-embedding-2';
 export const FALLBACK_EMBEDDING_MODEL = 'gemini-embedding-001';
@@ -259,6 +259,8 @@ export class KilnovaRagEngine {
   private chunks: DocumentChunk[] = [];
   private ai: GoogleGenAI | null = null;
   private embeddingsHydrated = false;
+  private embeddingsInFlight: Promise<boolean> | null = null;
+  private embeddingsBackoffUntil = 0;
 
   constructor(apiKey?: string) {
     const key = apiKey ?? process.env.GEMINI_API_KEY;
@@ -355,16 +357,34 @@ export class KilnovaRagEngine {
     return normalized;
   }
 
+  private async withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private async embedTexts(texts: string[]): Promise<number[][]> {
     if (!this.ai || texts.length === 0) return [];
     const models = [EMBEDDING_MODEL, FALLBACK_EMBEDDING_MODEL];
     let lastError: unknown;
     for (const model of models) {
       try {
-        const result = await this.ai.models.embedContent({
-          model,
-          contents: texts,
-        });
+        const result = await this.withTimeout(
+          this.ai.models.embedContent({
+            model,
+            contents: texts,
+          }),
+          4500,
+          `embedContent(${model})`
+        );
         const embeddings = result.embeddings ?? [];
         return embeddings.map((e) => e.values ?? []);
       } catch (err) {
@@ -382,22 +402,39 @@ export class KilnovaRagEngine {
       this.embeddingsHydrated = true;
       return true;
     }
-    // Embed in batches of 16 to stay clean & fast
-    for (let i = 0; i < missing.length; i += 16) {
-      const batch = missing.slice(i, i + 16);
-      const vectors = await this.embedTexts(batch.map((c) => c.text));
-      if (vectors.length === 0) {
-        this.embeddingsHydrated = false;
-        return false;
-      }
-      batch.forEach((chunk, idx) => {
-        if (vectors[idx] && vectors[idx].length > 0) {
-          chunk.embedding = vectors[idx];
-        }
-      });
+    if (Date.now() < this.embeddingsBackoffUntil) {
+      return false;
     }
-    this.embeddingsHydrated = this.chunks.every((c) => c.embedding && c.embedding.length > 0);
-    return this.embeddingsHydrated;
+    if (this.embeddingsInFlight) {
+      return this.embeddingsInFlight;
+    }
+
+    const work = (async () => {
+      // Embed in batches of 16 to stay clean & fast
+      for (let i = 0; i < missing.length; i += 16) {
+        const batch = missing.slice(i, i + 16);
+        const vectors = await this.embedTexts(batch.map((c) => c.text));
+        if (vectors.length === 0) {
+          this.embeddingsHydrated = false;
+          this.embeddingsBackoffUntil = Date.now() + 60_000;
+          return false;
+        }
+        batch.forEach((chunk, idx) => {
+          if (vectors[idx] && vectors[idx].length > 0) {
+            chunk.embedding = vectors[idx];
+          }
+        });
+      }
+      this.embeddingsHydrated = this.chunks.every((c) => c.embedding && c.embedding.length > 0);
+      return this.embeddingsHydrated;
+    })();
+
+    this.embeddingsInFlight = work;
+    try {
+      return await work;
+    } finally {
+      this.embeddingsInFlight = null;
+    }
   }
 
   /**
@@ -543,14 +580,21 @@ export class KilnovaRagEngine {
 
     for (const modelName of candidateModels) {
       try {
-        const response = await this.ai.models.generateContent({
-          model: modelName,
-          contents: userPrompt,
-          config: {
-            systemInstruction,
-            temperature: 0.2,
-          },
-        });
+        const response = await this.withTimeout(
+          this.ai.models.generateContent({
+            model: modelName,
+            contents: userPrompt,
+            config: {
+              systemInstruction,
+              temperature: 0.2,
+              ...(modelName === GENERATION_MODEL
+                ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+                : {}),
+            },
+          }),
+          15000,
+          `generateContent(${modelName})`
+        );
         const text = response.text?.trim();
         if (text) {
           answer = text;

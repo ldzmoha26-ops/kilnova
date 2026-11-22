@@ -25,6 +25,7 @@ import {
   type KilnInputParams,
   type OperatingMode,
 } from '../utils/kilnSimulation';
+import { useKilnovaAssistant } from '../context/KilnovaAssistantContext';
 
 interface OperatorDashboardPageProps {
   manualFallbackActive?: boolean;
@@ -121,6 +122,19 @@ export function OperatorDashboardPage({
 
   const { condition, sensors, report } = evaluation;
   const shellAssessment = report.shellAssessment;
+  const { setOperationalContext } = useKilnovaAssistant();
+
+  useEffect(() => {
+    const flagged = sensors.filter((s) => s.status !== 'NORMAL').length;
+    setOperationalContext({
+      shellMaxTemp: Math.round(activeParams.shellMaxTemp),
+      burningZoneTemp: Math.round(activeParams.burningZoneTemp),
+      affectedZone: 'Shell Ring B-04 · Meter 39–43',
+      condition,
+      flaggedSensors: flagged,
+    });
+  }, [activeParams.burningZoneTemp, activeParams.shellMaxTemp, condition, sensors, setOperationalContext]);
+
   const visuals = statusVisuals(condition, shellAssessment.isExceeded);
   const thermalKpis = useMemo(() => computeThermalKpis(activeParams, regime), [activeParams, regime]);
   const electricalKpis = useMemo(

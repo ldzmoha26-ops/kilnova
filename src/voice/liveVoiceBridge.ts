@@ -13,8 +13,8 @@ import {
   ADVISOR_DISCLAIMER,
   KilnovaRagEngine,
   buildSupervisorSystemInstruction,
-} from '../rag/vectorEngine';
-import type { AssistantLanguage, KnowledgeCollection } from '../rag/types';
+} from '../rag/vectorEngine.ts';
+import type { AssistantLanguage, KnowledgeCollection } from '../rag/types.ts';
 
 export const GEMINI_LIVE_MODEL = 'gemini-3.8-live';
 
@@ -50,7 +50,7 @@ const SEARCH_KILNOVA_RAG_DECLARATION: FunctionDeclaration = {
 };
 
 interface ClientControlMessage {
-  type: 'start' | 'audio' | 'text' | 'interrupt' | 'end';
+  type: 'start' | 'audio' | 'text' | 'interrupt' | 'ping' | 'end';
   data?: string;
   text?: string;
   language?: string;
@@ -70,25 +70,65 @@ function sendJson(ws: WebSocket, payload: Record<string, unknown>) {
   }
 }
 
-function isAllowedOrigin(req: IncomingMessage): boolean {
+function normalizeHost(rawHost: string): string {
+  return rawHost
+    .trim()
+    .toLowerCase()
+    .replace(/:(80|443)$/, '');
+}
+
+/**
+ * Production-safe WebSocket Origin validator compatible with Google Cloud Run,
+ * AI Studio Preview/Shared URLs, HTTPS reverse proxies (x-forwarded-host),
+ * APP_URL, and optional ALLOWED_ORIGINS env var.
+ */
+export function isAllowedOrigin(req: IncomingMessage): boolean {
   const origin = req.headers.origin;
   if (!origin) return true;
   try {
-    const originHost = new URL(origin).host.toLowerCase();
-    const hostHeader = (req.headers['x-forwarded-host'] || req.headers.host || '')
-      .toString()
-      .split(',')[0]
-      .trim()
-      .toLowerCase();
-    if (!hostHeader) return true;
-    if (originHost === hostHeader) return true;
+    const parsedOrigin = new URL(origin);
+    const originHost = normalizeHost(parsedOrigin.host);
+
+    const candidateHosts = new Set<string>();
+    const addCandidate = (raw?: string | string[]) => {
+      if (!raw) return;
+      const str = Array.isArray(raw) ? raw.join(',') : raw;
+      for (const part of str.split(',')) {
+        const cleaned = part.trim();
+        if (!cleaned) continue;
+        try {
+          const host = cleaned.includes('://') ? new URL(cleaned).host : cleaned;
+          candidateHosts.add(normalizeHost(host));
+        } catch {
+          candidateHosts.add(normalizeHost(cleaned));
+        }
+      }
+    };
+
+    addCandidate(req.headers['x-forwarded-host']);
+    addCandidate(req.headers.host);
+    addCandidate(process.env.APP_URL);
+    addCandidate(process.env.SHARED_APP_URL);
+    addCandidate(process.env.ALLOWED_ORIGINS);
+
+    if (candidateHosts.size === 0) return true;
+    if (candidateHosts.has(originHost)) return true;
+
     // Allow local dev loopback pairs
+    const isLoopback = (h: string) => h.startsWith('localhost') || h.startsWith('127.0.0.1');
+    if (isLoopback(originHost) && [...candidateHosts].some(isLoopback)) {
+      return true;
+    }
+
+    // Cloud Run proxies sometimes rewrite internal Host while serving from *.run.app
     if (
-      (originHost.startsWith('localhost:') || originHost.startsWith('127.0.0.1:')) &&
-      (hostHeader.startsWith('localhost:') || hostHeader.startsWith('127.0.0.1:'))
+      parsedOrigin.protocol === 'https:' &&
+      originHost.endsWith('.run.app') &&
+      [...candidateHosts].some((h) => h.endsWith('.run.app') || isLoopback(h))
     ) {
       return true;
     }
+
     return false;
   } catch {
     return false;
@@ -112,6 +152,9 @@ export function attachKilnovaLiveVoiceServer(
     }
 
     if (!isAllowedOrigin(request)) {
+      console.warn(
+        `Rejected WebSocket /api/voice/live upgrade from origin="${request.headers.origin}" host="${request.headers.host}" x-forwarded-host="${request.headers['x-forwarded-host']}"`
+      );
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
@@ -127,6 +170,26 @@ export function attachKilnovaLiveVoiceServer(
     let isClosing = false;
     let pendingToolCalls = 0;
     let activeCollectionFilter: KnowledgeCollection | 'all' = 'all';
+    let isAlive = true;
+
+    // Keepalive ping every 25s so Cloud Run / HTTPS reverse proxies do not drop idle WSS streams
+    clientWs.on('pong', () => {
+      isAlive = true;
+    });
+
+    const heartbeatTimer = setInterval(() => {
+      if (clientWs.readyState !== WebSocket.OPEN) return;
+      if (!isAlive) {
+        clientWs.terminate();
+        return;
+      }
+      isAlive = false;
+      try {
+        clientWs.ping();
+      } catch {
+        // ignore
+      }
+    }, 25000);
 
     const closeLiveSession = () => {
       if (liveSession) {
@@ -461,6 +524,12 @@ export function attachKilnovaLiveVoiceServer(
         return;
       }
 
+      if (msg.type === 'ping') {
+        isAlive = true;
+        sendJson(clientWs, { type: 'pong' });
+        return;
+      }
+
       if (msg.type === 'interrupt') {
         // Send a brief quiet audio end / activity signal and notify client to flush playback
         sendJson(clientWs, { type: 'interrupted' });
@@ -475,11 +544,13 @@ export function attachKilnovaLiveVoiceServer(
 
     clientWs.on('close', () => {
       isClosing = true;
+      clearInterval(heartbeatTimer);
       closeLiveSession();
     });
 
     clientWs.on('error', () => {
       isClosing = true;
+      clearInterval(heartbeatTimer);
       closeLiveSession();
     });
   });
