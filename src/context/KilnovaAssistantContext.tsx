@@ -172,9 +172,27 @@ export function KilnovaAssistantProvider({ children }: { children: ReactNode }) 
             operationalContext,
           }),
         });
-        const payload = await response.json();
+        const rawBody = await response.text();
+        let payload: (RagQueryResponse & { error?: string }) | null = null;
+        if (rawBody) {
+          try {
+            payload = JSON.parse(rawBody) as RagQueryResponse & { error?: string };
+          } catch {
+            payload = null;
+          }
+        }
+        if (!payload) {
+          if (response.status === 404) {
+            throw new Error(
+              'KILNOVA backend API (/api/rag/query) returned HTTP 404. Ensure the app is deployed with its Node.js server running (not static-only hosting) and redeploy the latest version.'
+            );
+          }
+          throw new Error(
+            `KILNOVA backend returned a non-JSON response (HTTP ${response.status}). Check that the Node.js server is running and GEMINI_API_KEY is configured.`
+          );
+        }
         if (!response.ok) {
-          throw new Error(payload?.error || `HTTP ${response.status} from RAG API`);
+          throw new Error(payload.error || `HTTP ${response.status} from RAG API`);
         }
 
         const data = payload as RagQueryResponse;

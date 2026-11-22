@@ -156,6 +156,35 @@ export function useKilnovaVoiceAgent(options: UseKilnovaVoiceAgentOptions) {
     setOperatingMode(next);
   }, []);
 
+  // Probe backend voice capabilities once so serverless hosts (e.g. Vercel, where persistent WSS is unsupported)
+  // start directly in Standard Voice (HTTPS) without triggering failed WebSocket handshake errors.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { liveVoiceSupported?: boolean; standardVoiceConfigured?: boolean } | null) => {
+        if (cancelled || !data) return;
+        if (data.liveVoiceSupported === false && voiceStateRef.current === 'idle') {
+          setModeSynced('STANDARD_VOICE');
+          if (data.standardVoiceConfigured === false) {
+            setVoiceError(
+              'GEMINI_API_KEY is not configured in Vercel Environment Variables. Add GEMINI_API_KEY and redeploy.'
+            );
+          } else {
+            setFallbackNotice(
+              'Serverless hosting detected — Standard Voice (HTTPS) is active.'
+            );
+          }
+        }
+      })
+      .catch(() => {
+        // Ignore transient probe errors; startVoiceSession handles fallback automatically
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setModeSynced]);
+
   const clearSocketTimers = useCallback(() => {
     if (wsTimeoutRef.current !== null) {
       window.clearTimeout(wsTimeoutRef.current);
@@ -439,9 +468,27 @@ export function useKilnovaVoiceAgent(options: UseKilnovaVoiceAgentOptions) {
           }),
         });
 
-        const payload = (await response.json()) as StandardVoiceApiResponse;
+        const rawBody = await response.text();
+        let payload: StandardVoiceApiResponse | null = null;
+        if (rawBody) {
+          try {
+            payload = JSON.parse(rawBody) as StandardVoiceApiResponse;
+          } catch {
+            payload = null;
+          }
+        }
+        if (!payload) {
+          if (response.status === 404) {
+            throw new Error(
+              'Standard Voice API (/api/voice/standard) returned HTTP 404. Redeploy with the Node.js backend running (not static-only hosting).'
+            );
+          }
+          throw new Error(
+            `Standard Voice backend returned a non-JSON response (HTTP ${response.status}).`
+          );
+        }
         if (!response.ok) {
-          throw new Error(payload?.error || `HTTP ${response.status} from Standard Voice API`);
+          throw new Error(payload.error || `HTTP ${response.status} from Standard Voice API`);
         }
 
         setRagLookupNote(null);
